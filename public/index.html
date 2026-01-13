@@ -131,6 +131,9 @@
         .fx-popup.show { display: flex; }
         .fx-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: #ccc; }
         .fx-slider { flex: 1; accent-color: #fff; }
+        .clips-count-pill { position:absolute; top:12px; right:12px; z-index:6; background:rgba(0,0,0,0.6); color:white; font-size:0.65rem; padding:4px 8px; border-radius:12px; font-weight:700; }
+        .card-img:hover .hover-overlay { opacity: 1 !important; }
+
         #rmsContainer { display:flex; align-items:center; gap:8px; min-width:140px; }
         #rmsCanvas { width: 120px; height: 14px; background: #111; border-radius: 4px; border: 1px solid #222; }
         #rmsValue { font-family: monospace; font-size: 0.8rem; color:#9f9; min-width:48px; text-align:right; }
@@ -274,10 +277,18 @@
     <button class="gp-close-btn" onclick="closeGlobalPlayer()">×</button>
     <div class="gp-info">
         <img src="" id="gpCover" class="gp-cover">
-        <div class="gp-meta"><span id="gpTitle" class="gp-title">Без трека</span><span id="gpStatus" class="gp-artist">...</span></div>
+        <div class="gp-meta">
+            <span id="gpTitle" class="gp-title">Без трека</span>
+            <span id="gpStatus" class="gp-artist">...</span>
+            <span id="gpIndex" style="font-size: 0.7rem; color: #666;"></span>
+        </div>
     </div>
     <div class="gp-controls">
-        <div class="gp-btns"><button class="gp-btn" onclick="seek(-5)">⏪</button><button class="gp-btn gp-play" id="gpPlayBtn" onclick="toggleGlobalPlay()">▶</button><button class="gp-btn" onclick="seek(5)">⏩</button></div>
+        <div class="gp-btns">
+            <button class="gp-btn" onclick="prevTrack()">⏪</button>
+            <button class="gp-btn gp-play" id="gpPlayBtn" onclick="toggleGlobalPlay()">▶</button>
+            <button class="gp-btn" onclick="nextTrack()">⏩</button>
+        </div>
         <div class="gp-progress-wrap"><span id="gpTimeCurrent">0:00</span><input type="range" class="gp-range" id="gpProgress" value="0" step="0.1" oninput="scrub(this.value)"><span id="gpTimeTotal">0:00</span></div>
     </div>
     <div class="gp-extras">
@@ -306,14 +317,12 @@
     function getUserId() {
         let uid = localStorage.getItem(USER_ID_KEY);
         if (!uid) {
-            // Генерируем простой случайный ID, если его нет
             uid = 'user_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
             localStorage.setItem(USER_ID_KEY, uid);
         }
         return uid;
     }
 
-    // Отображаем UserID в модалке
     const dispUserEl = document.getElementById('dispUserId');
     if(dispUserEl) dispUserEl.textContent = getUserId();
 
@@ -336,20 +345,27 @@
         return true;
     }
 
-    // Добавляем X-User-Id во все запросы
     async function apiFetch(path, opts = {}) {
         const keysRaw = getLocalKeysRaw();
         if (!keysRaw) throw new Error('Ключи не настроены. Вставьте ключ.');
-
-        const headers = {
-            ...(opts.headers || {}),
-            'X-User-Keys': keysRaw,
-            'X-User-Id': getUserId()
-        };
-
+        const headers = { ...(opts.headers || {}), 'X-User-Keys': keysRaw, 'X-User-Id': getUserId() };
         if (opts.body instanceof FormData) return fetch(path, { ...opts, headers });
         return fetch(path, { ...opts, headers });
     }
+
+    // --- AUDIO INIT (MOVED UP FOR SAFETY) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioEl = new Audio(); audioEl.crossOrigin = "anonymous";
+    const sourceNode = audioCtx.createMediaElementSource(audioEl);
+    const gainNode = audioCtx.createGain(); const maxGainNode = audioCtx.createGain();
+    const compressorNode = audioCtx.createDynamicsCompressor();
+    const lowShelf = audioCtx.createBiquadFilter(); lowShelf.type = "lowshelf"; lowShelf.frequency.value = 320;
+    const midPeaking = audioCtx.createBiquadFilter(); midPeaking.type = "peaking"; midPeaking.frequency.value = 1000; midPeaking.Q.value = 0.5;
+    const highShelf = audioCtx.createBiquadFilter(); highShelf.type = "highshelf"; highShelf.frequency.value = 3200;
+    const rmsAnalyser = audioCtx.createAnalyser(); rmsAnalyser.fftSize = 2048;
+
+    sourceNode.connect(lowShelf); lowShelf.connect(midPeaking); midPeaking.connect(highShelf); highShelf.connect(maxGainNode); maxGainNode.connect(compressorNode); compressorNode.connect(rmsAnalyser); rmsAnalyser.connect(gainNode); gainNode.connect(audioCtx.destination);
+    compressorNode.threshold.value = -24; compressorNode.knee.value = 30; compressorNode.ratio.value = 12; compressorNode.attack.value = 0.003; compressorNode.release.value = 0.25;
 
     let currentModel = 'V5';
     let currentGender = 'any';
@@ -423,7 +439,7 @@
         refreshHistory();
     }
 
-    // --- DETAILS MODAL ---
+    // --- MODALS & FEEDS ---
     function openModal(taskId) {
         const item = historyData.find(t => t.task_id === taskId);
         if(!item) return;
@@ -439,68 +455,55 @@
         const tracksContainer = document.getElementById('mTracksContainer');
         tracksContainer.innerHTML = '';
         if (item.clips && item.clips.length > 0) {
+            const mainImg = item.clips[0].image_url || item.clips[0].imageUrl || 'https://via.placeholder.com/400x400?text=No+Img';
             item.clips.forEach((clip, idx) => {
                 const url = clip.url || clip.audio_url || clip.audioUrl || '';
                 const title = clip.title || item.title || `Трек ${idx+1}`;
+                const img = clip.image_url || clip.imageUrl || mainImg;
+                const safeTitle = title.replace(/'/g, "\\'");
+                const safeTags = (item.tags || '').replace(/'/g, "\\'");
+                const safeImg = img;
                 const div = document.createElement('div');
                 div.style = "background:#222; padding:15px; border-radius:8px; margin-bottom:10px;";
                 div.innerHTML = `
-                    <div style="font-weight:bold; margin-bottom:5px;">${title}</div>
-                    <audio controls src="${url}" style="width:100%"></audio>
-                    <div style="margin-top:8px;">
-                        <a href="${url}" target="_blank" style="color:#888; text-decoration:none; font-size:0.8rem; margin-right:15px;">Скачать MP3</a>
-                        <button style="background:none; border:1px solid #555; color:#ccc; border-radius:4px; padding:4px 8px; cursor:pointer;" onclick="downloadWithFX('${url}', '${title.replace(/'/g, '')}', 320, this)">Скачать с FX</button>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <div style="font-weight:bold; color:white;">${title}</div>
+                        <div style="font-size:0.75rem; color:#888;">${item.tags || ''}</div>
+                    </div>
+                    <button class="create-btn" style="width:100%; padding:12px; margin-bottom:12px; display:flex; align-items:center; justify-content:center; gap:10px; background:#333; border:1px solid #444;" onclick="loadAndPlay('${url}', '${safeTitle}', '${safeImg}', '${safeTags}')"><span>▶ Слушать в плеере</span></button>
+                    <div style="display:flex; justify-content:flex-end; gap:15px; align-items:center;">
+                        <a href="${url}" target="_blank" style="color:#888; text-decoration:none; font-size:0.8rem;">⬇ Скачать MP3</a>
+                        <button style="background:none; border:1px solid #555; color:#ccc; border-radius:4px; padding:4px 8px; cursor:pointer; font-size:0.8rem;" onclick="downloadWithFX('${url}', '${safeTitle}', 320, this)">Скачать с FX</button>
                     </div>`;
                 tracksContainer.appendChild(div);
             });
             const mCover = document.getElementById('mCover');
-            if(item.clips[0] && (item.clips[0].image_url || item.clips[0].imageUrl)) {
-                mCover.src = item.clips[0].image_url || item.clips[0].imageUrl;
-                document.getElementById('mCoverContainer').style.display = 'block';
-            } else document.getElementById('mCoverContainer').style.display = 'none';
+            if(mainImg) { mCover.src = mainImg; document.getElementById('mCoverContainer').style.display = 'block'; } else { document.getElementById('mCoverContainer').style.display = 'none'; }
         } else { tracksContainer.innerHTML = '<div style="color:#666;">Аудио еще не готово или ошибка.</div>'; }
         document.getElementById('detailModal').classList.add('open');
     }
     function closeModal() { document.getElementById('detailModal').classList.remove('open'); }
 
-    // --- UPLOAD ---
+    // --- UPLOAD & GENERATE ---
     document.getElementById('fileInput').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if(!file) return;
         document.getElementById('fileName').textContent = "Загрузка...";
         const fd = new FormData(); fd.append('file', file);
-        try {
-            if (!ensureKeysOrOpenModal()) return;
-            const res = await apiFetch('/api/upload-file', { method:'POST', body: fd });
-            const data = await res.json();
-            if(data.public_url) {
-                uploadedRefUrl = data.public_url;
-                document.getElementById('fileName').textContent = "✅ " + file.name;
-                appLog("Загружено: " + file.name, 'success');
-            } else throw new Error("Нет URL");
-        } catch(err) {
-            document.getElementById('fileName').textContent = "❌ Ошибка";
-            appLog("Ошибка загрузки: " + err.message, 'error');
-        }
+        try { if (!ensureKeysOrOpenModal()) return; const res = await apiFetch('/api/upload-file', { method:'POST', body: fd }); const data = await res.json(); if(data.public_url) { uploadedRefUrl = data.public_url; document.getElementById('fileName').textContent = "✅ " + file.name; appLog("Загружено: " + file.name, 'success'); } else throw new Error("Нет URL"); } catch(err) { document.getElementById('fileName').textContent = "❌ Ошибка"; appLog("Ошибка загрузки: " + err.message, 'error'); }
     });
 
-    // --- GENERATE ---
     async function generate() {
-        const btn = document.getElementById('genBtn');
-        const status = document.getElementById('statusMsg');
+        const btn = document.getElementById('genBtn'); const status = document.getElementById('statusMsg');
         const isCustom = document.getElementById('customModeToggle').checked;
         const prompt = document.getElementById('prompt').value;
-        const style = document.getElementById('style').value;
-        const title = document.getElementById('title').value;
-
         if(!document.getElementById('instrumentalToggle').checked && !prompt.trim()) { alert("Введите текст или описание"); return; }
         if (!ensureKeysOrOpenModal()) return;
-
         btn.disabled = true; status.textContent = "Отправка...";
         const payload = {
             mode: isCustom ? 'custom' : 'simple',
             task_type: uploadedRefUrl ? 'cover_music' : 'create_music',
-            title: title, tags: style, prompt: prompt, ref_url: uploadedRefUrl,
+            title: document.getElementById('title').value, tags: document.getElementById('style').value, prompt: prompt, ref_url: uploadedRefUrl,
             options: {
                 model: currentModel, instrumental: document.getElementById('instrumentalToggle').checked,
                 vocal_gender: currentGender, style_influence: document.getElementById('styleWeight').value,
@@ -508,122 +511,64 @@
                 persona_id: document.getElementById('personaId').value, audio_weight: document.getElementById('audioWeight').value
             }
         };
-
-        try {
-            const res = await apiFetch('/api/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-            const data = await res.json();
-            if(data.task_id) {
-                status.textContent = "ID: " + data.task_id;
-                appLog("Старт задачи: " + data.task_id, 'success');
-                await refreshHistory();
-                poll(data.task_id);
-            } else {
-                status.textContent = "Ошибка API"; btn.disabled = false;
-                appLog("Ошибка: " + JSON.stringify(data), 'error');
-            }
-        } catch(e) { status.textContent = "Ошибка сети"; btn.disabled = false; appLog("Сбой: " + e.message, 'error'); }
+        try { const res = await apiFetch('/api/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) }); const data = await res.json(); if(data.task_id) { status.textContent = "ID: " + data.task_id; appLog("Старт задачи: " + data.task_id, 'success'); await refreshHistory(); poll(data.task_id); } else { status.textContent = "Ошибка API"; btn.disabled = false; appLog("Ошибка: " + JSON.stringify(data), 'error'); } } catch(e) { status.textContent = "Ошибка сети"; btn.disabled = false; appLog("Сбой: " + e.message, 'error'); }
     }
 
-    function poll(id) {
-        const interval = setInterval(async () => {
-            try {
-                const res = await apiFetch(`/api/check/${id}`, { method: 'GET' });
-                const data = await res.json();
-                let state = 'submitted';
-                if(data.data && data.data.length > 0) state = data.data[0].state.toLowerCase();
+    function poll(id) { const interval = setInterval(async () => { try { const res = await apiFetch(`/api/check/${id}`, { method: 'GET' }); const data = await res.json(); let state = 'submitted'; if(data.data && data.data.length > 0) state = data.data[0].state.toLowerCase(); if(state === 'succeeded' || state === 'completed') { clearInterval(interval); document.getElementById('genBtn').disabled = false; document.getElementById('statusMsg').textContent = "Готово!"; appLog(`Задача ${id} выполнена`, 'success'); refreshHistory(); } else if (state === 'failed') { clearInterval(interval); document.getElementById('genBtn').disabled = false; document.getElementById('statusMsg').textContent = "Сбой"; appLog(`Задача ${id} провалена`, 'error'); refreshHistory(); } } catch(e) { } }, 4000); }
 
-                if(state === 'succeeded' || state === 'completed') {
-                    clearInterval(interval); document.getElementById('genBtn').disabled = false; document.getElementById('statusMsg').textContent = "Готово!";
-                    appLog(`Задача ${id} выполнена`, 'success'); refreshHistory();
-                } else if (state === 'failed') {
-                    clearInterval(interval); document.getElementById('genBtn').disabled = false; document.getElementById('statusMsg').textContent = "Сбой";
-                    appLog(`Задача ${id} провалена`, 'error'); refreshHistory();
-                }
-            } catch(e) { /* silent */ }
-        }, 4000);
-    }
+    async function refreshHistory() { try { if (!ensureKeysOrOpenModal()) { document.getElementById('feedList').innerHTML = '<div style="color:#666;text-align:center;">Нужны ключи</div>'; return; } await apiFetch('/api/history/refresh', { method:'POST' }); const res = await apiFetch('/api/history', { method: 'GET' }); historyData = await res.json(); renderFeed(historyData); } catch(e) { appLog("Ошибка обновления: " + e.message, 'error'); } }
 
-    async function refreshHistory() {
-        try {
-            if (!ensureKeysOrOpenModal()) { document.getElementById('feedList').innerHTML = '<div style="color:#666;text-align:center;">Нужны ключи</div>'; return; }
-            await apiFetch('/api/history/refresh', { method:'POST' });
-            const res = await apiFetch('/api/history', { method: 'GET' });
-            historyData = await res.json();
-            renderFeed(historyData);
-        } catch(e) { appLog("Ошибка обновления: " + e.message, 'error'); }
-    }
-
+    // --- FEED & CARDS ---
     function renderFeed(items) {
         const feed = document.getElementById('feedList'); feed.innerHTML = '';
         if(items.length === 0) { feed.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:#444; margin-top:50px;">История пуста</div>'; return; }
-
         items.forEach((item) => {
-            const clips = (Array.isArray(item.clips) && item.clips.length > 0) ? item.clips : null;
-            if (clips) {
-                // Если есть клипы - рендерим каждый отдельно
-                clips.forEach((clip, index) => {
-                    const img = clip.image_url || clip.imageUrl || item.clips[0].image_url || 'https://via.placeholder.com/400x400?text=No+Img';
-                    const audioUrl = clip.audio_url || clip.audioUrl || clip.url;
-                    const trackTitle = (clip.title || item.title || 'Untitled') + (clips.length > 1 ? ` [${index+1}]` : '');
-                    createCard(feed, { taskId: item.task_id, title: trackTitle, tags: item.tags || 'Pop', img: img, audioUrl: audioUrl, status: item.status, isCover: item.type === 'cover_music' });
-                });
-            } else {
-                // Иначе показываем общую карточку задачи
-                createCard(feed, { taskId: item.task_id, title: item.title || 'Generating...', tags: item.tags || '...', img: 'https://via.placeholder.com/400x400?text=Wait...', audioUrl: null, status: item.status, isCover: item.type === 'cover_music' });
-            }
+            const clips = (Array.isArray(item.clips) && item.clips.length > 0) ? item.clips : [];
+            const firstClip = clips[0] || {};
+            const img = firstClip.image_url || firstClip.imageUrl || 'https://via.placeholder.com/400x400?text=Generating...';
+            const playlistData = clips.map((c, idx) => ({ url: c.audio_url || c.audioUrl || c.url, title: (c.title || item.title || 'Track') + (clips.length > 1 ? ` [Var ${idx+1}]` : ''), image: c.image_url || c.imageUrl || img })).filter(c => c.url);
+            createCard(feed, { taskId: item.task_id, title: item.title || 'Untitled', tags: item.tags || 'Pop', img: img, status: item.status, isCover: item.type === 'cover_music', playlist: playlistData });
         });
     }
 
     function createCard(container, data) {
         const card = document.createElement('div'); card.className = 'card';
-        let statusClass = 'submitted';
-        if(data.status === 'completed' || data.status === 'succeeded') statusClass = 'succeeded';
-        if(data.status === 'failed') statusClass = 'failed';
-        let tagsHtml = '';
-        if(data.tags) { data.tags.split(',').slice(0, 3).forEach(t => { tagsHtml += `<span class="tag-pill">${t.trim()}</span>`; }); }
+        let statusClass = 'submitted'; if(data.status === 'completed' || data.status === 'succeeded') statusClass = 'succeeded'; if(data.status === 'failed') statusClass = 'failed';
+        let tagsHtml = ''; if(data.tags) { data.tags.split(',').slice(0, 3).forEach(t => { tagsHtml += `<span class="tag-pill">${t.trim()}</span>`; }); }
         const refHtml = data.isCover ? `<div class="ref-badge">🎤 Кавер</div>` : '';
-        const safeTitle = (data.title || '').replace(/'/g, "\\'");
-        const safeTags = (data.tags || '').replace(/'/g, "\\'");
+        const clipsData = encodeURIComponent(JSON.stringify(data.playlist));
         const safeImg = data.img;
-
         card.innerHTML = `
-            <div class="card-img"><img src="${data.img}" loading="lazy"><div class="status-badge ${statusClass}">${data.status === 'submitted' ? 'Ждём...' : data.status}</div>${refHtml}${data.audioUrl ? `<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); opacity:0; transition:0.2s; cursor:pointer;" class="hover-overlay" onclick="event.stopPropagation(); loadAndPlay('${data.audioUrl}', '${safeTitle}', '${safeImg}', '${safeTags}')"><div style="font-size:3rem; filter:drop-shadow(0 4px 10px rgba(0,0,0,0.5));">▶</div></div>` : ''}</div>
+            <div class="card-img"><img src="${data.img}" loading="lazy"><div class="status-badge ${statusClass}">${data.status === 'submitted' ? 'Ждём...' : data.status}</div>${refHtml}${data.playlist.length > 0 ? `<div class="clips-count-pill">🎧 ${data.playlist.length}</div><div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); opacity:0; transition:0.2s; cursor:pointer;" class="hover-overlay" data-clips="${clipsData}" onclick="event.stopPropagation(); playCardClips(this, '${safeImg}', '')"><div style="font-size:3rem; filter:drop-shadow(0 4px 10px rgba(0,0,0,0.5));">▶</div></div>` : ''}</div>
             <div class="card-body"><div class="card-title">${data.title}</div><div class="card-tags">${tagsHtml}</div><div class="card-meta-row"><div class="meta-icon">🎵 ${data.taskId.slice(0,4)}</div><div class="meta-icon" style="margin-left:auto; display:flex; gap:10px;"><button class="delete-btn" onclick="openModal('${data.taskId}')" title="Детали">ℹ️</button><button class="delete-btn" onclick="deleteTask(event, '${data.taskId}')" title="Удалить задачу">🗑</button></div></div></div>
         `;
         card.onclick = (e) => { if(e.target.tagName !== 'BUTTON' && !e.target.classList.contains('hover-overlay')) { openModal(data.taskId); } };
         container.appendChild(card);
     }
 
-    async function deleteTask(e, id) {
-        e.stopPropagation();
-        if(!confirm("Удалить задачу?")) return;
-        try { await apiFetch('/api/history/' + id, { method: 'DELETE' }); refreshHistory(); } catch (err) { appLog("Ошибка удаления: " + err.message, 'error'); }
+    async function deleteTask(e, id) { e.stopPropagation(); if(!confirm("Удалить задачу?")) return; try { await apiFetch('/api/history/' + id, { method: 'DELETE' }); refreshHistory(); } catch (err) { appLog("Ошибка удаления: " + err.message, 'error'); } }
+    async function importTask() { const id = prompt("Введите Task ID:"); if(id) { try { await apiFetch('/api/history/import', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({taskId:id})}); refreshHistory(); } catch(e) { appLog("Ошибка импорта: " + e.message, 'error'); } } }
+
+    // --- PLAYLIST LOGIC ---
+    let playlist = []; let currentIndex = 0;
+    function playCardClips(el, defaultImg, defaultTags) {
+        try { const raw = el.dataset.clips; if (!raw) return; const clips = JSON.parse(decodeURIComponent(raw)); if (Array.isArray(clips) && clips.length > 0) { playlist = clips; currentIndex = 0; playFromPlaylist(currentIndex); } } catch (e) { console.error("Playlist error:", e); }
     }
-
-    async function importTask() {
-        const id = prompt("Введите Task ID:");
-        if(id) {
-            try { await apiFetch('/api/history/import', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({taskId:id})}); refreshHistory(); } catch(e) { appLog("Ошибка импорта: " + e.message, 'error'); }
-        }
+    function playFromPlaylist(index) {
+        if (!playlist || playlist.length === 0) return;
+        if (index < 0) index = playlist.length - 1; if (index >= playlist.length) index = 0;
+        currentIndex = index; const track = playlist[currentIndex];
+        loadAndPlay(track.url, track.title, track.image, document.getElementById('gpStatus').textContent);
+        const counter = document.getElementById('gpIndex'); if(counter) counter.textContent = `${currentIndex + 1} / ${playlist.length}`;
     }
+    function prevTrack() { if (playlist.length > 1) { playFromPlaylist(currentIndex - 1); } else { audioEl.currentTime = 0; } }
+    function nextTrack() { if (playlist.length > 1) { playFromPlaylist(currentIndex + 1); } }
+    audioEl.addEventListener('ended', () => { if(playlist.length > 1) { nextTrack(); } else { isPlaying = false; updatePlayBtn(); } });
 
-    // --- AUDIO & FX ---
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const audioEl = new Audio(); audioEl.crossOrigin = "anonymous";
-    const sourceNode = audioCtx.createMediaElementSource(audioEl);
-    const gainNode = audioCtx.createGain(); const maxGainNode = audioCtx.createGain();
-    const compressorNode = audioCtx.createDynamicsCompressor();
-    const lowShelf = audioCtx.createBiquadFilter(); lowShelf.type = "lowshelf"; lowShelf.frequency.value = 320;
-    const midPeaking = audioCtx.createBiquadFilter(); midPeaking.type = "peaking"; midPeaking.frequency.value = 1000; midPeaking.Q.value = 0.5;
-    const highShelf = audioCtx.createBiquadFilter(); highShelf.type = "highshelf"; highShelf.frequency.value = 3200;
-    const rmsAnalyser = audioCtx.createAnalyser(); rmsAnalyser.fftSize = 2048;
-
-    sourceNode.connect(lowShelf); lowShelf.connect(midPeaking); midPeaking.connect(highShelf); highShelf.connect(maxGainNode); maxGainNode.connect(compressorNode); compressorNode.connect(rmsAnalyser); rmsAnalyser.connect(gainNode); gainNode.connect(audioCtx.destination);
-    compressorNode.threshold.value = -24; compressorNode.knee.value = 30; compressorNode.ratio.value = 12; compressorNode.attack.value = 0.003; compressorNode.release.value = 0.25;
-
+    // --- PLAYER CONTROLS ---
     let isPlaying = false;
     function closeGlobalPlayer() { audioEl.pause(); isPlaying = false; document.getElementById('globalPlayer').classList.remove('active'); document.getElementById('consolePanel').classList.remove('with-player'); updatePlayBtn(); }
-    function loadAndPlay(url, title, img, tags) { if (!url) return; if(audioCtx.state === 'suspended') audioCtx.resume(); document.getElementById('globalPlayer').classList.add('active'); document.getElementById('consolePanel').classList.add('with-player'); document.getElementById('gpTitle').textContent = title; document.getElementById('gpStatus').textContent = tags; document.getElementById('gpCover').src = img || "https://via.placeholder.com/50"; audioEl.src = url; audioEl.play().then(() => { isPlaying = true; updatePlayBtn(); appLog(`Играет: ${title}`, 'success'); }).catch(e => { console.error(e); appLog("Ошибка воспроизведения (CORS?)", 'error'); }); }
+    function loadAndPlay(url, title, img, tags) { if (!url) return; if(audioCtx.state === 'suspended') audioCtx.resume(); document.getElementById('globalPlayer').classList.add('active'); document.getElementById('consolePanel').classList.add('with-player'); document.getElementById('gpTitle').textContent = title; document.getElementById('gpStatus').textContent = tags; document.getElementById('gpCover').src = img || "https://via.placeholder.com/50"; audioEl.src = url; audioEl.play().then(() => { isPlaying = true; updatePlayBtn(); appLog(`Играет: ${title}`, 'success'); }).catch(e => { console.error(e); appLog("Ошибка воспроизведения", 'error'); }); }
     function toggleGlobalPlay() { if(audioEl.paused) { audioEl.play(); isPlaying = true; } else { audioEl.pause(); isPlaying = false; } updatePlayBtn(); }
     function updatePlayBtn() { document.getElementById('gpPlayBtn').textContent = isPlaying ? "⏸" : "▶"; }
     function seek(sec) { audioEl.currentTime += sec; }

@@ -1,0 +1,34 @@
+[
+  {
+    "task_id": "4305edca7744dddea9c98ed0025c8de1",
+    "status": "completed",
+    "clips": [
+      {
+        "id": "6ec7858a-6e2d-455f-a9a2-224d0f891723",
+        "url": "https://musicfile.kie.ai/NmVjNzg1OGEtNmUyZC00NTVmLWE5YTItMjI0ZDBmODkxNzIz.mp3",
+        "image_url": "https://musicfile.kie.ai/NmVjNzg1OGEtNmUyZC00NTVmLWE5YTItMjI0ZDBmODkxNzIz.jpeg",
+        "duration": 110.72,
+        "title": "Clear sound, Brostep, Staccato",
+        "status": "succeeded",
+        "index": 1
+      },
+      {
+        "id": "65b39ec5-6c15-4b3d-8e69-a22a4102158f",
+        "url": "https://musicfile.kie.ai/NjViMzllYzUtNmMxNS00YjNkLThlNjktYTIyYTQxMDIxNThm.mp3",
+        "image_url": "https://musicfile.kie.ai/NjViMzllYzUtNmMxNS00YjNkLThlNjktYTIyYTQxMDIxNThm.jpeg",
+        "duration": 143.04,
+        "title": "Clear sound, Brostep, Staccato",
+        "status": "succeeded",
+        "index": 2
+      }
+    ],
+    "title": "Clear sound, Brostep, Staccato",
+    "metadata": {
+      "model": "V5",
+      "style": 1,
+      "weirdness": 0,
+      "audio_weight": 1,
+      "instrumental": false
+    }
+  }
+]
