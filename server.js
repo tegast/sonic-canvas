@@ -44,46 +44,71 @@ function updateTaskInDb(taskId, updates) {
     }
 }
 
-// --- KEY ROTATION LOGIC ---
-async function fetchWithRetry(url, options = {}) {
-    let keys = getKeys();
-    if (keys.length === 0 && process.env.MUSICAPI_KEY) {
-        keys = [process.env.MUSICAPI_KEY];
+// --- KEY ROTATION LOGIC (UPDATED) ---
+// Теперь принимает userKeys (из заголовка запроса)
+async function fetchWithRetry(url, options = {}, userKeys = null) {
+    let keys = [];
+
+    // 1. Приоритет: Ключи от клиента (через заголовок)
+    if (userKeys) {
+        if (typeof userKeys === 'string') {
+            // Разбиваем по новой строке или запятой
+            keys = userKeys.split(/[\r\n,]+/).map(k => k.trim()).filter(Boolean);
+        } else if (Array.isArray(userKeys)) {
+            keys = userKeys.map(k => (k || '').trim()).filter(Boolean);
+        }
     }
 
-    if (keys.length === 0) throw new Error("No API keys available");
+    // 2. Если клиент не прислал, берем с сервера (файл или env)
+    if (keys.length === 0) {
+        keys = getKeys();
+        if (keys.length === 0 && process.env.MUSICAPI_KEY) {
+            keys = [process.env.MUSICAPI_KEY];
+        }
+    }
+
+    if (keys.length === 0) throw new Error("No API keys available (Client didn't send any, Server has none)");
 
     let lastError = null;
 
     for (const key of keys) {
-        console.log(`[API] Trying key ${key.slice(0,5)}...`);
+        const keyMask = key.slice(0, 5);
+        console.log(`[API] Trying key ${keyMask}...`);
+
         try {
             const headers = { ...options.headers, "Authorization": `Bearer ${key}` };
             const res = await fetch(url, { ...options, headers });
 
+            // Читаем как текст, чтобы не упасть на JSON.parse если там HTML ошибка
+            const text = await res.text();
             let data;
+
             try {
-                data = await res.json();
+                data = JSON.parse(text);
             } catch (e) {
-                console.error(`[API] Key ${key.slice(0,5)}... returned non-JSON (status ${res.status})`);
-                continue;
+                console.error(`[API] Key ${keyMask}... returned non-JSON (status ${res.status}): ${text.slice(0, 100)}`);
+                // Если статус 4xx/5xx - пробуем следующий ключ, иначе кидаем ошибку
+                if (res.status >= 400) continue;
+                throw new Error(`Non-JSON response: ${text.slice(0,50)}`);
             }
 
+            // Обработка логических ошибок API (Kie style)
             if (data.code === 401 || data.code === 402 || data.code === 429) {
-                console.log(`[API] Key ${key.slice(0,5)}... returned code ${data.code} (${data.msg}). Switching key...`);
+                console.log(`[API] Key ${keyMask}... returned code ${data.code} (${data.msg}). Switching key...`);
                 continue;
             }
 
+            // Особый случай для проверки статуса: иногда возвращает 200 но data null
             if (url.includes("/record-info") && data.code === 200 && !data.data) {
-                console.log(`[API] Key ${key.slice(0,5)}... task not found. Trying next key...`);
+                console.log(`[API] Key ${keyMask}... task not found (data is null). Trying next key...`);
                 continue;
             }
 
-            console.log(`[API] Key ${key.slice(0,5)}... success/valid response.`);
+            console.log(`[API] Key ${keyMask}... success/valid response.`);
             return data;
 
         } catch (e) {
-            console.error(`[API] Key ${key.slice(0,5)}... network error:`, e.message);
+            console.error(`[API] Key ${keyMask}... network error:`, e.message);
             lastError = e;
         }
     }
@@ -144,10 +169,13 @@ app.post("/api/upload-file", upload.single("file"), async (req, res) => {
     }
 });
 
-// --- API: Генерация ---
+// --- API: Генерация (UPDATED) ---
 app.post("/api/generate", async (req, res) => {
     try {
         const { mode, task_type, title, tags, prompt, ref_url, options } = req.body;
+
+        // Получаем ключи от клиента
+        const clientKeysHeader = req.headers['x-user-keys'] || null;
 
         const isCover = task_type === 'cover_music';
         const endpoint = isCover
@@ -156,7 +184,7 @@ app.post("/api/generate", async (req, res) => {
 
         const body = {
             model: options?.model || "V5",
-            callBackUrl: "https://google.com",
+            callBackUrl: "https://google.com", // Фейковый callback, т.к. мы полим
             customMode: mode === "custom",
             instrumental: options?.instrumental || false
         };
@@ -186,11 +214,12 @@ app.post("/api/generate", async (req, res) => {
             body.prompt = prompt;
         }
 
+        // Передаем clientKeysHeader в fetchWithRetry
         const data = await fetchWithRetry(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)
-        });
+        }, clientKeysHeader);
 
         if (data.code === 200 && data.data && data.data.taskId) {
             const newId = data.data.taskId;
@@ -224,14 +253,15 @@ app.post("/api/generate", async (req, res) => {
         }
         res.json(data);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Gen failed" });
+        console.error("Gen Error:", error);
+        res.status(500).json({ error: "Gen failed: " + error.message });
     }
 });
 
-// --- API: Проверка и Sync ---
+// --- API: Проверка и Sync (UPDATED) ---
 app.get("/api/check/:taskId", async (req, res) => {
-    const result = await checkAndSaveTask(req.params.taskId);
+    // Передаем ключи
+    const result = await checkAndSaveTask(req.params.taskId, req.headers['x-user-keys']);
     res.json(result.raw);
 });
 
@@ -248,7 +278,8 @@ app.post("/api/history/import", async (req, res) => {
     const { taskId } = req.body;
     if (!taskId) return res.status(400).json({ error: "Task ID required" });
 
-    const result = await checkAndSaveTask(taskId);
+    // Передаем ключи
+    const result = await checkAndSaveTask(taskId, req.headers['x-user-keys']);
 
     if (result.raw && result.raw.data && result.raw.data.length > 0) {
         res.json({ success: true, data: result.raw.data[0] });
@@ -258,29 +289,35 @@ app.post("/api/history/import", async (req, res) => {
 });
 
 app.post("/api/history/refresh", async (req, res) => {
+    // Получаем ключи один раз для всей пачки
+    const clientKeysHeader = req.headers['x-user-keys'];
+
     let history = getHistory();
     let count = 0;
     for (const item of history) {
         if (item.status === 'submitted' || item.status === 'failed' || (item.status === 'completed' && (!item.clips || item.clips.length === 0))) {
-            const r = await checkAndSaveTask(item.task_id);
+            // Передаем ключи в проверку
+            const r = await checkAndSaveTask(item.task_id, clientKeysHeader);
             if (r.updated) count++;
         }
     }
     res.json({ updated: count, data: getHistory().slice(0, 50) });
 });
 
-async function checkAndSaveTask(taskId) {
+// (UPDATED) Теперь принимает userKeys
+async function checkAndSaveTask(taskId, userKeys = null) {
     try {
         console.log(`Checking task ${taskId.slice(0,8)}...`);
 
+        // Передаем userKeys в fetchWithRetry
         const data = await fetchWithRetry(`https://api.kie.ai/api/v1/generate/record-info?taskId=${taskId}`, {
             method: "GET"
-        });
+        }, userKeys);
 
         let updated = false;
         const resultRaw = { code: 200, data: [] };
 
-        if (data.code === 200 && data.data) {
+        if (data && data.code === 200 && data.data) {
             const task = data.data;
             let kieStatus = task.status;
             if (typeof kieStatus === 'string') kieStatus = kieStatus.trim().toUpperCase();
@@ -377,7 +414,8 @@ async function checkAndSaveTask(taskId) {
                 resultRaw.data = [{ state: state, task_id: taskId }];
             }
         } else {
-            resultRaw.data = [{ state: 'failed', task_id: taskId, error: data.msg || `API Error ${data.code}` }];
+            const errMsg = data ? (data.msg || `API Error ${data.code}`) : "Empty response";
+            resultRaw.data = [{ state: 'failed', task_id: taskId, error: errMsg }];
         }
         return { raw: resultRaw, updated };
     } catch (e) {
