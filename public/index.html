@@ -1,0 +1,1500 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Suno API Client</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #050505;
+            --sidebar-bg: #0c0c0c;
+            --panel-bg: #141414;
+            --input-bg: #1f1f1f;
+            --text-main: #ededed;
+            --text-muted: #888888;
+            --accent: #fff;
+            --border: #2a2a2a;
+            --button-primary: #ffffff;
+            --button-text: #000000;
+        }
+        * { box-sizing: border-box; outline: none; }
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); height: 100vh; display: flex; overflow: hidden; }
+
+        /* SCROLLBAR */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        /* SIDEBAR (Generator) */
+        .sidebar {
+            width: 400px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            overflow-y: auto;
+            z-index: 20;
+        }
+
+        .sidebar-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo { font-weight: 800; font-size: 1.4rem; display: flex; align-items: center; gap: 10px; letter-spacing: -0.5px; }
+        .logo span { background: var(--text-main); color: black; padding: 2px 6px; border-radius: 4px; font-size: 0.9rem; }
+
+        .icon-btn {
+            background: transparent; border: 1px solid #333; color: #888;
+            width: 36px; height: 36px; border-radius: 8px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: 0.2s;
+        }
+        .icon-btn:hover { color: white; border-color: #666; background: #222; }
+
+        .form-container { padding: 24px; flex: 1; display: flex; flex-direction: column; gap: 24px; }
+
+        .mode-toggle { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+        .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .3s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--text-main); }
+        input:checked + .slider:before { transform: translateX(18px); background-color: black; }
+
+        /* INPUTS */
+        .input-group { display: flex; flex-direction: column; gap: 8px; }
+        label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        input[type="text"], textarea, select, input[type="number"] {
+            background: var(--input-bg);
+            border: 1px solid #333;
+            color: var(--text-main);
+            padding: 14px;
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            resize: vertical;
+            transition: 0.2s;
+        }
+        input[type="text"]:focus, textarea:focus, select:focus { border-color: #666; background: #222; }
+        textarea { min-height: 110px; line-height: 1.5; }
+
+        .row { display: flex; gap: 10px; }
+        .col { flex: 1; }
+
+        /* TAGS */
+        .model-select { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 5px; }
+        .model-opt {
+            background: var(--input-bg);
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border: 1px solid #333;
+            color: var(--text-muted);
+            transition: 0.2s;
+            font-weight: 500;
+        }
+        .model-opt:hover { background: #2a2a2a; border-color: #555; }
+        .model-opt.active { background: var(--text-main); color: black; font-weight: 700; border-color: white; }
+
+        /* BUTTON */
+        .create-btn {
+            background: var(--button-primary);
+            color: var(--button-text);
+            padding: 16px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .create-btn:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 15px rgba(255,255,255,0.1); }
+        .create-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+        /* MAIN CONTENT */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-color);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feed-header {
+            padding: 24px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(5,5,5,0.9);
+            border-bottom: 1px solid var(--border);
+            z-index: 10;
+            backdrop-filter: blur(10px);
+        }
+        .feed-title { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.02em; }
+
+        .feed-list {
+            padding: 40px;
+            overflow-y: auto;
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 30px;
+            align-content: start;
+        }
+
+        /* --- КВАДРАТНЫЕ КАРТОЧКИ (FIXED LAYOUT) --- */
+        .card {
+            background: #111;
+            border-radius: 16px;
+            overflow: hidden;
+            position: relative;
+
+            width: 100%;
+            padding-top: 100%;
+            height: 0;
+
+            border: 1px solid #333;
+            cursor: pointer;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
+            border-color: #555;
+            z-index: 5;
+        }
+
+        /* КАРТИНКА (ФОН) */
+        .card-img {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 0;
+        }
+
+        .card-img img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.5s ease;
+        }
+
+        .card:hover .card-img img {
+            transform: scale(1.08); /* Зум при наведении */
+        }
+
+        /* ТЕКСТ ПОВЕРХ КАРТИНКИ (OVERLAY) */
+        .card-body {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            z-index: 2;
+            padding: 16px;
+
+            background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 60%, transparent 100%);
+
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            justify-content: flex-end;
+            height: 50%;
+        }
+
+        .card-title {
+            font-weight: 800;
+            font-size: 1.1rem;
+            color: #fff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            margin: 0;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+
+        .card-tags {
+            display: flex; gap: 5px; overflow: hidden; height: 22px;
+            opacity: 0.9;
+        }
+        .tag-pill {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(4px);
+            color: #ddd;
+            font-size: 0.65rem; padding: 3px 8px; border-radius: 4px;
+        }
+
+        .card-meta-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: 4px;
+            font-size: 0.75rem; color: #ccc;
+        }
+        .meta-icon { display: flex; align-items: center; gap: 4px; text-shadow: 0 1px 2px rgba(0,0,0,1); }
+
+        /* СТАТУС (ВЕРХНИЙ УГОЛ) */
+        .status-badge {
+            position: absolute; top: 12px; left: 12px; z-index: 5;
+            padding: 5px 10px; border-radius: 20px; font-size: 0.6rem; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 0.05em;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .status-badge.submitted { background: rgba(255, 255, 255, 0.2); color: white; border: 1px solid rgba(255,255,255,0.3); }
+        .status-badge.succeeded { background: rgba(30, 215, 96, 0.8); color: black; border: none; }
+        .status-badge.failed { background: rgba(255, 68, 68, 0.8); color: white; border: none; }
+
+        .clips-count-pill {
+            position:absolute;
+            top:12px;
+            right:12px;
+            z-index:6;
+            background:rgba(0,0,0,0.6);
+            color:white;
+            font-size:0.65rem;
+            padding:4px 8px;
+            border-radius:12px;
+            font-weight:700;
+        }
+
+        /* КНОПКИ УПРАВЛЕНИЯ */
+        .delete-btn {
+            background: rgba(0,0,0,0.4); color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px; width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            transition: 0.2s;
+            backdrop-filter: blur(4px);
+        }
+        .delete-btn:hover { background: #fff; color: #000; }
+
+        /* CONSOLE */
+        .console-panel {
+            height: 120px;
+            background: #0a0a0a;
+            border-top: 1px solid var(--border);
+            padding: 15px 20px;
+            font-family: 'Consolas', monospace;
+            font-size: 0.8rem;
+            color: #ccc;
+            overflow-y: auto;
+            display: flex; flex-direction: column-reverse;
+            /* Плавный отступ для плеера */
+            transition: margin-bottom 0.4s ease;
+        }
+        /* Класс, который добавляется JS-ом когда открыт плеер */
+        .console-panel.with-player {
+            margin-bottom: 90px;
+        }
+
+        .log-entry { margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid #161616; }
+        .log-time { color: #444; margin-right: 10px; user-select: none; }
+
+        /* MODAL */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(8px);
+            z-index: 100;
+            display: none; align-items: center; justify-content: center; opacity: 0; transition: 0.3s;
+        }
+        .modal-overlay.open { display: flex; opacity: 1; }
+
+        .modal {
+            background: #111;
+            width: 90%; max-width: 900px; max-height: 85vh;
+            border-radius: 16px;
+            border: 1px solid #333;
+            display: flex; flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 40px 80px rgba(0,0,0,0.8);
+        }
+
+        .modal-header { padding: 20px 30px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; background: #161616; }
+        .modal-title { font-size: 1.2rem; font-weight: 700; color: white; }
+        .close-btn { background: none; border: none; color: #666; font-size: 1.8rem; cursor: pointer; line-height: 1; }
+        .close-btn:hover { color: white; }
+
+        .modal-body { padding: 0; display: flex; overflow: hidden; height: 100%; }
+        .modal-sidebar { width: 320px; background: #0c0c0c; border-right: 1px solid #222; padding: 25px; overflow-y: auto; flex-shrink: 0; }
+        .modal-main { flex: 1; padding: 30px; overflow-y: auto; background: #111; }
+
+        .track-item {
+            background: #1a1a1a; border-radius: 10px; padding: 20px; margin-bottom: 20px;
+            border: 1px solid #2a2a2a;
+        }
+        .track-header { display: flex; justify-content: space-between; margin-bottom: 15px; align-items: center; }
+        .track-name { font-weight: 700; color: white; font-size: 1rem; }
+
+        .info-row { margin-bottom: 18px; }
+        .info-label { font-size: 0.7rem; color: #555; text-transform: uppercase; font-weight: 800; margin-bottom: 6px; display: block; letter-spacing: 0.05em; }
+        .info-val { font-size: 0.9rem; color: #ddd; font-weight: 500; }
+
+        audio { width: 100%; height: 40px; margin-top: 5px; border-radius: 4px; }
+
+        /* --- GLOBAL PLAYER --- */
+        .global-player {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            height: 90px;
+            background: rgba(10, 10, 10, 0.95);
+            border-top: 1px solid #333;
+            backdrop-filter: blur(15px);
+            z-index: 200;
+            display: flex; align-items: center; padding: 0 30px; gap: 20px;
+            transform: translateY(100%); transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        .global-player.active { transform: translateY(0); }
+
+        /* Кнопка закрытия плеера */
+        .gp-close-btn {
+            position: absolute; top: -12px; right: -12px;
+            width: 24px; height: 24px;
+            background: #ff4444; color: white;
+            border: 2px solid #111; border-radius: 50%;
+            font-size: 14px; line-height: 1;
+            cursor: pointer; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 210;
+        }
+        .gp-close-btn:hover { transform: scale(1.1); background: #ff6666; }
+
+        /* Track Info */
+        .gp-info { display: flex; align-items: center; gap: 15px; width: 300px; }
+        .gp-cover { width: 56px; height: 56px; border-radius: 6px; object-fit: cover; background: #222; }
+        .gp-meta { display: flex; flex-direction: column; overflow: hidden; }
+        .gp-title { color: #fff; font-weight: 700; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .gp-artist { color: #888; font-size: 0.75rem; }
+        .gp-index { color: #777; font-size: 0.75rem; }
+
+        /* Controls (Center) */
+        .gp-controls { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .gp-btns { display: flex; align-items: center; gap: 20px; }
+        .gp-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 1.2rem; transition: 0.2s; }
+        .gp-btn:hover { color: white; transform: scale(1.1); }
+        .gp-play { width: 40px; height: 40px; background: white; color: black; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1rem; }
+
+        /* Progress Bar */
+        .gp-progress-wrap { width: 100%; max-width: 600px; display: flex; align-items: center; gap: 10px; font-size: 0.75rem; color: #666; font-family: monospace; }
+        .gp-range { flex: 1; height: 4px; border-radius: 2px; background: #333; appearance: none; cursor: pointer; }
+        .gp-range::-webkit-slider-thumb { appearance: none; width: 10px; height: 10px; background: #fff; border-radius: 50%; box-shadow: 0 0 10px rgba(255,255,255,0.5); }
+
+        /* FX Panel (Right) */
+        .gp-extras { display: flex; align-items: center; gap: 15px; width: 300px; justify-content: flex-end; }
+        .fx-btn { font-size: 0.75rem; font-weight: 700; border: 1px solid #444; padding: 4px 8px; border-radius: 4px; color: #888; background: transparent; cursor: pointer; }
+        .fx-btn.on { background: #fff; color: #000; border-color: #fff; box-shadow: 0 0 10px rgba(255,255,255,0.3); }
+
+        /* FX Popup */
+        .fx-popup {
+            position: absolute; bottom: 100px; right: 30px;
+            background: #111; border: 1px solid #333; border-radius: 12px;
+            padding: 20px; width: 280px; display: none; flex-direction: column; gap: 15px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+        .fx-popup.show { display: flex; }
+        .fx-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.8rem; color: #ccc; }
+        .fx-slider { flex: 1; accent-color: #fff; }
+        .card-img:hover .hover-overlay { opacity: 1 !important; }
+
+        /* RMS widget */
+        #rmsContainer { display:flex; align-items:center; gap:8px; min-width:140px; }
+        #rmsCanvas { width: 120px; height: 14px; background: #111; border-radius: 4px; border: 1px solid #222; }
+        #rmsValue { font-family: monospace; font-size: 0.8rem; color:#9f9; min-width:48px; text-align:right; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="sidebar-header">
+        <div class="logo"><span>SUNO</span> CLIENT</div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <button class="icon-btn" onclick="openKeysModal()" title="Manage API Keys">🔑</button>
+            <div class="mode-toggle" style="margin:0;">
+                <label class="switch">
+                    <input type="checkbox" id="customModeToggle" checked onchange="toggleMode()">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <div class="form-container">
+        <div class="input-group">
+            <label>Reference Audio (Cover/Remix)</label>
+            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <div id="uploadText">📁 Click to Upload</div>
+                <div id="fileName" class="file-name"></div>
+            </div>
+            <input type="file" id="fileInput" hidden accept="audio/*">
+        </div>
+
+        <div class="input-group">
+            <label>
+                <span id="lyricsLabel">Lyrics</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span style="font-size:0.7rem; color:#666;">Instrumental</span>
+                    <label class="switch" style="width:34px; height:18px;">
+                        <input type="checkbox" id="instrumentalToggle" onchange="toggleInstrumental()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </label>
+            <textarea id="prompt" placeholder="Enter lyrics or description..."></textarea>
+        </div>
+
+        <div class="input-group" id="styleGroup">
+            <label>Style</label>
+            <textarea id="style" style="min-height: 60px;" placeholder="e.g. Dark Trap, Piano, Male Vocals"></textarea>
+        </div>
+
+        <div class="input-group" id="titleGroup">
+            <label>Title</label>
+            <input type="text" id="title" placeholder="Track Title">
+        </div>
+
+        <div class="input-group">
+            <label>Model</label>
+            <div class="model-select" id="modelSelect">
+                <div class="model-opt active" onclick="setModel('V5', this)">V5</div>
+                <div class="model-opt" onclick="setModel('V4', this)">V4</div>
+                <div class="model-opt" onclick="setModel('V4_5', this)">V4.5</div>
+            </div>
+        </div>
+
+        <div class="advanced-toggle" onclick="toggleAdvanced()">
+            <span>⚙️ Advanced Settings</span>
+            <span id="advArrow">▼</span>
+        </div>
+        <div class="advanced-content" id="advancedContent">
+            <div class="input-group">
+                <label>Negative Tags</label>
+                <input type="text" id="negativeTags" placeholder="Tags to exclude">
+            </div>
+            <div class="input-group">
+                <label>Persona ID</label>
+                <input type="text" id="personaId" placeholder="Optional">
+            </div>
+            <div class="input-group">
+                <label>Vocal Gender</label>
+                <div class="row">
+                    <div class="col"><button class="model-opt" style="width:100%" onclick="setGender('any', this)">Any</button></div>
+                    <div class="col"><button class="model-opt" style="width:100%" onclick="setGender('male', this)">Male</button></div>
+                    <div class="col"><button class="model-opt" style="width:100%" onclick="setGender('female', this)">Fem</button></div>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>Weirdness <span id="weirdVal" class="range-val">0.5</span></label>
+                <input type="range" id="weirdness" min="0" max="1" step="0.01" value="0.5" oninput="document.getElementById('weirdVal').textContent=this.value">
+            </div>
+            <div class="input-group">
+                <label>Style Weight <span id="styleVal" class="range-val">0.5</span></label>
+                <input type="range" id="styleWeight" min="0" max="1" step="0.01" value="0.5" oninput="document.getElementById('styleVal').textContent=this.value">
+            </div>
+            <div class="input-group">
+                <label>Audio Weight <span id="audioVal" class="range-val">0.5</span></label>
+                <input type="range" id="audioWeight" min="0" max="1" step="0.01" value="0.5" oninput="document.getElementById('audioVal').textContent=this.value">
+            </div>
+        </div>
+
+        <button class="create-btn" onclick="generate()" id="genBtn">
+            <span>✨ GENERATE</span>
+        </button>
+        <div id="statusMsg" style="text-align:center; font-size:0.8rem; color:var(--text-muted); min-height:20px;"></div>
+    </div>
+</div>
+
+<div class="main-content">
+    <div class="feed-header">
+        <div class="feed-title">Library</div>
+        <div style="display:flex; gap:12px;">
+            <button onclick="importTask()" style="background:#222; border:1px solid #333; color:white; padding:8px 16px; border-radius:8px; cursor:pointer; font-size: 0.85rem; font-weight:600;">Import ID</button>
+            <button onclick="refreshHistory()" style="background:#fff; border:none; color:black; padding:8px 16px; border-radius:8px; cursor:pointer; font-size: 0.85rem; font-weight:700;">Refresh</button>
+        </div>
+    </div>
+
+    <div class="feed-list" id="feedList"></div>
+
+    <div class="console-panel" id="consolePanel">
+        <div style="color: #444; font-style: italic;">> System ready...</div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="detailModal" onclick="if(event.target === this) closeModal()">
+    <div class="modal">
+        <div class="modal-header">
+            <div class="modal-title" id="mTitle">Track Title</div>
+            <button class="close-btn" onclick="closeModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="modal-sidebar">
+                <div class="info-row" id="mCoverContainer" style="display:none;">
+                    <img id="mCover" src="" style="width:100%; border-radius:12px; border:1px solid #333; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Status</span>
+                    <span class="info-val" id="mStatus" style="font-family:monospace;">COMPLETED</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Task ID</span>
+                    <span class="info-val" id="mTaskId" style="font-family:monospace; font-size:0.8rem; color:#666;">-</span>
+                </div>
+                <div style="border-top:1px solid #222; padding-top:20px; margin-top:20px;">
+                    <div class="info-row"><span class="info-label">Model</span><span class="info-val" id="mModel">-</span></div>
+                    <div class="info-row"><span class="info-label">Gender</span><span class="info-val" id="mGender">-</span></div>
+                    <div class="info-row"><span class="info-label">Style Weight</span><span class="info-val" id="mStyleW">-</span></div>
+                    <div class="info-row"><span class="info-label">Audio Weight</span><span class="info-val" id="mAudioW">-</span></div>
+
+                    <div class="info-row"><span class="info-label">Weirdness</span><span class="info-val" id="mWeird">-</span></div>
+                    <div class="info-row"><span class="info-label">Tags</span><span class="info-val" id="mTags">-</span></div>
+                </div>
+            </div>
+
+            <div class="modal-main">
+                <div class="info-label" style="font-size:0.9rem; margin-bottom:15px;">Generated Audio</div>
+                <div id="mTracksContainer"></div>
+
+                <div style="margin-top:40px;">
+                    <div class="info-label" style="font-size:0.9rem; margin-bottom:10px;">Lyrics / Prompt</div>
+                    <div id="mLyrics" style="white-space: pre-wrap; color: #bbb; line-height: 1.6; background:#161616; padding:20px; border-radius:10px; font-size:0.95rem;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="keysModal" onclick="if(event.target === this) closeKeysModal()">
+    <div class="modal" style="max-width: 500px; height: auto;">
+        <div class="modal-header">
+            <div class="modal-title">API Keys</div>
+            <button class="close-btn" onclick="closeKeysModal()">×</button>
+        </div>
+        <div class="modal-body" style="flex-direction: column; padding: 25px; overflow-y: auto;">
+            <p style="font-size: 0.85rem; color: #888; margin-top: 0;">One key per line. Automatically rotated on limit/error.</p>
+            <textarea id="keysInput" style="width: 100%; height: 200px; font-family: monospace; font-size: 0.85rem; white-space: pre; background:#111; color:#ccc; border:1px solid #333; padding:10px; border-radius:8px;" placeholder="Paste keys here..."></textarea>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+                <span id="keysStatus" style="font-size: 0.8rem; color: #666;">Ready</span>
+                <button class="create-btn" style="width: auto; padding: 10px 24px; margin:0;" onclick="saveKeys()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="global-player" id="globalPlayer">
+    <button class="gp-close-btn" onclick="closeGlobalPlayer()">×</button>
+
+    <div class="gp-info">
+        <img src="" id="gpCover" class="gp-cover">
+        <div class="gp-meta">
+            <span id="gpTitle" class="gp-title">No Track</span>
+            <span id="gpStatus" class="gp-artist">Idle</span>
+            <span id="gpIndex" class="gp-index"></span>
+        </div>
+    </div>
+
+    <div class="gp-controls">
+        <div class="gp-btns">
+            <button class="gp-btn" onclick="prevTrack()">⏪</button>
+            <button class="gp-btn gp-play" id="gpPlayBtn" onclick="toggleGlobalPlay()">▶</button>
+            <button class="gp-btn" onclick="nextTrack()">⏩</button>
+        </div>
+        <div class="gp-progress-wrap">
+            <span id="gpTimeCurrent">0:00</span>
+            <input type="range" class="gp-range" id="gpProgress" value="0" step="0.1" oninput="scrub(this.value)">
+            <span id="gpTimeTotal">0:00</span>
+        </div>
+    </div>
+
+    <div class="gp-extras">
+        <button class="fx-btn" id="btnMax" onclick="toggleMaximizer()">MAXIMIZER</button>
+        <button class="fx-btn" id="btnEq" onclick="toggleEqPanel()">EQ</button>
+        <div id="rmsContainer">
+            <canvas id="rmsCanvas" width="120" height="14"></canvas>
+            <div id="rmsValue">-∞ dB</div>
+        </div>
+        <div style="width: 80px; display:flex; align-items:center;">
+            🔊 <input type="range" style="width:60px; height:3px; margin-left:5px;" min="0" max="1" step="0.01" oninput="setVolume(this.value)">
+        </div>
+    </div>
+
+    <div class="fx-popup" id="fxPanel">
+        <div class="info-label">3-Band Equalizer</div>
+        <div class="fx-row"><span>Low</span> <input type="range" class="fx-slider" id="eqLow" min="-20" max="20" value="0" oninput="setFilter('low', this.value)"></div>
+        <div class="fx-row"><span>Mid</span> <input type="range" class="fx-slider" id="eqMid" min="-20" max="20" value="0" oninput="setFilter('mid', this.value)"></div>
+        <div class="fx-row"><span>High</span> <input type="range" class="fx-slider" id="eqHigh" min="-20" max="20" value="0" oninput="setFilter('high', this.value)"></div>
+        <div style="border-top:1px solid #333; margin: 10px 0;"></div>
+        <div class="info-label">Maximizer (Boost)</div>
+        <div class="fx-row"><span>Gain</span> <input type="range" class="fx-slider" id="maxGain" min="0" max="6" step="0.1" value="0" oninput="setMaximizerGain(this.value)"></div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
+
+<script>
+    let currentModel = 'V5';
+    let currentGender = 'any';
+    let uploadedRefUrl = null;
+    let historyData = [];
+
+    // playlist globals
+    let playlist = [];        // array of { url, title, image? }
+    let currentIndex = 0;
+
+    // --- LOGGING ---
+    function appLog(msg, type='info') {
+        const p = document.getElementById('consolePanel');
+        const d = document.createElement('div');
+        d.className = 'log-entry';
+        const time = new Date().toLocaleTimeString();
+        d.innerHTML = `<span class="log-time">${time}</span> ${msg}`;
+        if(type === 'error') d.style.color = '#ff5555';
+        else if(type === 'success') d.style.color = '#55ff55';
+        p.insertBefore(d, p.firstChild);
+        console.log(`[${type}]`, msg);
+    }
+
+    // --- UI LOGIC ---
+    function toggleMode() {
+        const isCustom = document.getElementById('customModeToggle').checked;
+        const disp = isCustom ? 'flex' : 'none';
+        document.getElementById('styleGroup').style.display = disp;
+        document.getElementById('titleGroup').style.display = disp;
+        document.getElementById('lyricsLabel').textContent = isCustom ? "Lyrics" : "Song Description";
+    }
+
+    function toggleInstrumental() {
+        const isInst = document.getElementById('instrumentalToggle').checked;
+        const prompt = document.getElementById('prompt');
+        if(isInst) {
+            prompt.disabled = true; prompt.style.opacity = 0.5;
+            prompt.placeholder = "Instrumental mode (Lyrics disabled)";
+        } else {
+            prompt.disabled = false; prompt.style.opacity = 1;
+            prompt.placeholder = "Enter lyrics or description...";
+        }
+    }
+
+    function toggleAdvanced() {
+        const content = document.getElementById('advancedContent');
+        content.classList.toggle('show');
+        document.getElementById('advArrow').textContent = content.classList.contains('show') ? '▲' : '▼';
+    }
+
+    function setModel(m, el) {
+        currentModel = m;
+        document.querySelectorAll('#modelSelect .model-opt').forEach(d => d.classList.remove('active'));
+        el.classList.add('active');
+    }
+
+    function setGender(g, el) {
+        currentGender = g;
+        el.parentNode.parentNode.querySelectorAll('.model-opt').forEach(b => {
+            b.style.background = 'var(--input-bg)';
+            b.style.color = 'var(--text-muted)';
+            b.style.borderColor = '#333';
+        });
+        el.style.background = 'var(--text-main)';
+        el.style.color = 'black';
+        el.style.borderColor = 'white';
+    }
+
+    async function openKeysModal() {
+        document.getElementById('keysModal').classList.add('open');
+        try {
+            const res = await fetch('/api/keys');
+            const data = await res.json();
+            if(data.keys) document.getElementById('keysInput').value = data.keys.join('\n');
+        } catch(e) {}
+    }
+    function closeKeysModal() { document.getElementById('keysModal').classList.remove('open'); }
+    async function saveKeys() {
+        const raw = document.getElementById('keysInput').value;
+        const keys = raw.split('\n').map(k => k.trim()).filter(k => k);
+        try {
+            await fetch('/api/keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ keys }) });
+            appLog(`Saved ${keys.length} API keys.`, 'success');
+            closeKeysModal();
+        } catch(e) { appLog("Save failed", 'error'); }
+    }
+
+    // --- MODAL ---
+    function openModal(index) {
+        const item = historyData[index];
+        if(!item) return;
+
+        document.getElementById('mTitle').textContent = item.title || "Untitled";
+        document.getElementById('mStatus').textContent = item.status.toUpperCase();
+        document.getElementById('mTaskId').textContent = item.task_id;
+        document.getElementById('mLyrics').textContent = item.prompt || "No text provided.";
+
+        const meta = item.metadata || {};
+        document.getElementById('mModel').textContent = meta.model || "-";
+        document.getElementById('mGender').textContent = meta.gender || "-";
+        document.getElementById('mStyleW').textContent = meta.style || "-";
+        document.getElementById('mWeird').textContent = meta.weirdness || "-";
+        document.getElementById('mTags').textContent = item.tags || "-";
+        document.getElementById('mAudioW').textContent = meta.audio_weight || "-";
+
+        const tracksContainer = document.getElementById('mTracksContainer');
+        tracksContainer.innerHTML = '';
+        if (item.clips && item.clips.length > 0) {
+            item.clips.forEach((clip, idx) => {
+                const url = clip.url || clip.audio_url || clip.audioUrl || '';
+                const title = clip.title || item.title || `Clip ${idx+1}`;
+                const image = clip.image_url || clip.imageUrl || '';
+
+                const trackDiv = document.createElement('div');
+                trackDiv.className = 'track-item';
+
+                // header
+                const header = document.createElement('div');
+                header.className = 'track-header';
+                const name = document.createElement('div');
+                name.className = 'track-name';
+                name.textContent = title;
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.target = '_blank';
+                downloadLink.style = "color:#888; text-decoration:none; font-size:0.8rem;";
+                downloadLink.textContent = 'Download ⬇';
+
+                header.appendChild(name);
+                header.appendChild(downloadLink);
+
+                // audio element
+                const audioElInner = document.createElement('audio');
+                audioElInner.controls = true;
+                audioElInner.src = url;
+
+                // download with FX button
+                const btn = document.createElement('button');
+                btn.className = 'create-btn';
+                btn.style = 'margin-top:10px; padding:8px 12px; font-size:0.85rem; width:auto;';
+                btn.textContent = 'Download with FX';
+                btn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    downloadWithFX(url, title, 192, btn);
+                });
+
+                trackDiv.appendChild(header);
+                trackDiv.appendChild(audioElInner);
+                trackDiv.appendChild(btn);
+
+                tracksContainer.appendChild(trackDiv);
+            });
+            const mCover = document.getElementById('mCover');
+            const mCoverContainer = document.getElementById('mCoverContainer');
+            if(item.clips[0] && (item.clips[0].image_url || item.clips[0].imageUrl)) {
+                mCover.src = item.clips[0].image_url || item.clips[0].imageUrl;
+                mCoverContainer.style.display = 'block';
+            } else mCoverContainer.style.display = 'none';
+        } else {
+            tracksContainer.innerHTML = '<div style="color:#666; font-size:0.9rem;">No audio generated yet.</div>';
+            document.getElementById('mCoverContainer').style.display = 'none';
+        }
+        document.getElementById('detailModal').classList.add('open');
+    }
+    function closeModal() {
+        document.getElementById('detailModal').classList.remove('open');
+        document.querySelectorAll('audio').forEach(a => a.pause());
+    }
+
+    // --- UPLOAD ---
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+        document.getElementById('fileName').textContent = "Uploading...";
+        const fd = new FormData(); fd.append('file', file);
+        try {
+            const res = await fetch('/api/upload-file', { method:'POST', body: fd });
+            const data = await res.json();
+            if(data.public_url) {
+                uploadedRefUrl = data.public_url;
+                document.getElementById('fileName').textContent = "✅ " + file.name;
+                appLog("Uploaded: " + file.name, 'success');
+            } else throw new Error("No URL");
+        } catch(err) {
+            document.getElementById('fileName').textContent = "❌ Failed";
+            appLog("Upload failed", 'error');
+        }
+    });
+
+    // --- GENERATE ---
+    async function generate() {
+        const btn = document.getElementById('genBtn');
+        const status = document.getElementById('statusMsg');
+
+        const isCustom = document.getElementById('customModeToggle').checked;
+        const prompt = document.getElementById('prompt').value;
+        const style = document.getElementById('style').value;
+        const title = document.getElementById('title').value;
+
+        if(!document.getElementById('instrumentalToggle').checked && !prompt.trim()) {
+            alert("Please enter lyrics/prompt"); return;
+        }
+
+        btn.disabled = true;
+        status.textContent = "Sending request...";
+
+        const payload = {
+            mode: isCustom ? 'custom' : 'simple',
+            task_type: uploadedRefUrl ? 'cover_music' : 'create_music',
+            title: title,
+            tags: style,
+            prompt: prompt,
+            ref_url: uploadedRefUrl,
+            options: {
+                model: currentModel,
+                instrumental: document.getElementById('instrumentalToggle').checked,
+                vocal_gender: currentGender,
+                style_influence: document.getElementById('styleWeight').value,
+                weirdness: document.getElementById('weirdness').value,
+                negative_tags: document.getElementById('negativeTags').value,
+                persona_id: document.getElementById('personaId').value,
+                audio_weight: document.getElementById('audioWeight').value
+            }
+        };
+
+        try {
+            const res = await fetch('/api/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if(data.task_id) {
+                status.textContent = "Started: " + data.task_id;
+                appLog("Task Started: " + data.task_id, 'success');
+                refreshHistory();
+                poll(data.task_id);
+            } else {
+                status.textContent = "Error";
+                btn.disabled = false;
+                appLog("API Error: " + JSON.stringify(data), 'error');
+            }
+        } catch(e) {
+            status.textContent = "Network Error";
+            btn.disabled = false;
+        }
+    }
+
+    function poll(id) {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/check/${id}`);
+                const data = await res.json();
+                let state = 'submitted';
+                if(data.data && data.data.length > 0) state = data.data[0].state.toLowerCase();
+
+                if(state === 'succeeded' || state === 'completed') {
+                    clearInterval(interval);
+                    document.getElementById('genBtn').disabled = false;
+                    document.getElementById('statusMsg').textContent = "Ready!";
+                    appLog(`Task ${id} completed`, 'success');
+                    refreshHistory();
+                } else if (state === 'failed') {
+                    clearInterval(interval);
+                    document.getElementById('genBtn').disabled = false;
+                    document.getElementById('statusMsg').textContent = "Failed";
+                    appLog(`Task ${id} failed`, 'error');
+                    refreshHistory();
+                }
+            } catch(e) {}
+        }, 4000);
+    }
+
+    async function refreshHistory() {
+        try {
+            await fetch('/api/history/refresh', { method:'POST' });
+            const res = await fetch('/api/history');
+            historyData = await res.json();
+            renderFeed(historyData);
+        } catch(e) { console.error(e); }
+    }
+
+    function renderFeed(items) {
+        const feed = document.getElementById('feedList');
+        feed.innerHTML = '';
+        if(items.length === 0) {
+            feed.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:#444; margin-top:50px;">Library is empty</div>';
+            return;
+        }
+
+        items.forEach((item, index) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+
+            let img = 'https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?q=80&w=600&auto=format&fit=crop';
+            if(item.clips && item.clips.length > 0 && item.clips[0].image_url) {
+                img = item.clips[0].image_url;
+            }
+
+            let statusClass = 'submitted';
+            if(item.status === 'completed' || item.status === 'succeeded') statusClass = 'succeeded';
+            if(item.status === 'failed') statusClass = 'failed';
+
+            let tagsHtml = '';
+            if(item.tags) {
+                item.tags.split(',').slice(0, 3).forEach(t => {
+                    tagsHtml += `<span class="tag-pill">${t.trim()}</span>`;
+                });
+            }
+
+            // Собираем clips массив корректно (ищем url в разных полях)
+            const clips = Array.isArray(item.clips) ? item.clips
+                .map(c => ({
+                    url: c.url || c.audio_url || c.audioUrl || '',
+                    title: c.title || item.title || '',
+                    image: c.image_url || c.imageUrl || img || ''
+                }))
+                .filter(c => c.url) : [];
+
+            // Выбираем безопасный основной url (если есть)
+            const clip = clips.length > 0 ? clips[0] : null;
+            const audioUrl = clip ? clip.url : '';
+            const safeTitle = (item.title || 'Untitled').replace(/'/g, "\\'");
+            const safeTags = (item.tags || '').replace(/'/g, "\\'");
+            const safeImg = img;
+            const clipsCount = clips.length;
+
+            // encode clips for putting into data attribute
+            const clipsData = encodeURIComponent(JSON.stringify(clips));
+
+            card.innerHTML = `
+                <div class="card-img">
+                    <img src="${img}" loading="lazy">
+                    <div class="status-badge ${statusClass}">${item.status === 'submitted' ? 'Gen...' : item.status}</div>
+
+                    <div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.3); opacity:0; transition:0.2s; cursor:pointer;"
+                        class="hover-overlay"
+                        data-clips="${clipsData}"
+                        onclick="event.stopPropagation(); playCardClips(this, '${safeImg}', '${safeTags}')">
+                        <div style="font-size:3rem; filter:drop-shadow(0 4px 10px rgba(0,0,0,0.5));">▶</div>
+                    </div>
+                    ${clipsCount > 1 ? `<div class="clips-count-pill">🎧 ${clipsCount}</div>` : ''}
+                </div>
+
+                <div class="card-body">
+                    <div class="card-title">${item.title || 'Untitled Track'}</div>
+                    <div class="card-tags">${tagsHtml}</div>
+                    <div class="card-meta-row">
+                        <div class="meta-icon">🎵 ${item.metadata?.model || 'V5'}</div>
+                        <div class="meta-icon" style="margin-left:auto; display:flex; gap:10px;">
+                            <button class="delete-btn" onclick="openModal(${index})" title="Details">ℹ️</button>
+                            <button class="delete-btn" onclick="deleteTask(event, '${item.task_id}')" title="Delete">🗑</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            card.onclick = (e) => {
+                if(e.target.tagName !== 'BUTTON') openModal(index);
+            };
+
+            feed.appendChild(card);
+        });
+    }
+
+    async function deleteTask(e, id) {
+        e.stopPropagation();
+        if(!confirm("Delete task?")) return;
+        await fetch('/api/history/' + id, { method: 'DELETE' });
+        refreshHistory();
+    }
+
+    async function importTask() {
+        const id = prompt("Task ID:");
+        if(id) {
+            await fetch('/api/history/import', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({taskId:id})});
+            refreshHistory();
+        }
+    }
+
+    // Init
+    refreshHistory();
+    toggleMode();
+
+    // --- AUDIO ENGINE (Web Audio API) ---
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioEl = new Audio();
+    audioEl.crossOrigin = "anonymous"; // Важно для эффектов на внешних URL
+
+    // FX Nodes
+    const sourceNode = audioCtx.createMediaElementSource(audioEl);
+    const gainNode = audioCtx.createGain(); // Master Volume
+    const maxGainNode = audioCtx.createGain(); // Maximizer Drive (we'll set value = 1 + v*0.5)
+    const compressorNode = audioCtx.createDynamicsCompressor(); // Limiter/Compressor
+
+    // EQ Nodes
+    const lowShelf = audioCtx.createBiquadFilter();
+    lowShelf.type = "lowshelf"; lowShelf.frequency.value = 320; lowShelf.gain.value = 0;
+    const midPeaking = audioCtx.createBiquadFilter();
+    midPeaking.type = "peaking"; midPeaking.frequency.value = 1000; midPeaking.Q.value = 0.5; midPeaking.gain.value = 0;
+    const highShelf = audioCtx.createBiquadFilter();
+    highShelf.type = "highshelf"; highShelf.frequency.value = 3200; highShelf.gain.value = 0;
+
+    // ANALYSER for RMS
+    const rmsAnalyser = audioCtx.createAnalyser();
+    rmsAnalyser.fftSize = 2048;
+
+    // Chain: Source -> Low -> Mid -> High -> MaximizerGain -> Compressor -> Analyser -> Master -> Destination
+    sourceNode.connect(lowShelf);
+    lowShelf.connect(midPeaking);
+    midPeaking.connect(highShelf);
+    highShelf.connect(maxGainNode);
+    maxGainNode.connect(compressorNode);
+    compressorNode.connect(rmsAnalyser);
+    rmsAnalyser.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    // Compressor Setup for "Maximizer" feel
+    compressorNode.threshold.value = -24;
+    compressorNode.knee.value = 30;
+    compressorNode.ratio.value = 12;
+    compressorNode.attack.value = 0.003;
+    compressorNode.release.value = 0.25;
+
+    // --- PLAYER LOGIC ---
+    let isPlaying = false;
+
+    // 1. Функция закрытия плеера
+    function closeGlobalPlayer() {
+        audioEl.pause();
+        isPlaying = false;
+
+        // Скрываем плеер
+        document.getElementById('globalPlayer').classList.remove('active');
+
+        // Убираем отступ у логов (чтобы не было дыры снизу)
+        document.getElementById('consolePanel').classList.remove('with-player');
+
+        // Сбрасываем кнопку Play
+        updatePlayBtn();
+    }
+
+    // 2. Функция загрузки и воспроизведения (играет одиночный url)
+    function loadAndPlay(url, title, img, tags) {
+        if (!url || url === 'undefined' || url === 'null' || url.trim() === '') {
+            console.error("❌ Audio URL is missing or invalid:", url);
+            appLog("Error: Audio URL not found for this track", 'error');
+            return;
+        }
+
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+
+        // Показываем плеер
+        document.getElementById('globalPlayer').classList.add('active');
+        document.getElementById('consolePanel').classList.add('with-player');
+
+        document.getElementById('gpTitle').textContent = title || "Unknown Title";
+        document.getElementById('gpStatus').textContent = tags || "Unknown Style";
+        document.getElementById('gpCover').src = img || "https://via.placeholder.com/50";
+        // update index display (if playlist present)
+        document.getElementById('gpIndex').textContent = playlist.length > 0 ? `${currentIndex+1}/${playlist.length}` : '';
+
+        console.log("▶ Playing:", url);
+        audioEl.src = url;
+
+        audioEl.play().then(() => {
+            isPlaying = true;
+            updatePlayBtn();
+            appLog(`Playing: ${title}`, 'success');
+        }).catch(e => {
+            console.error("Play error:", e);
+            isPlaying = false;
+            updatePlayBtn();
+
+            if (e.name === 'NotSupportedError' && url.includes('http')) {
+                appLog("CORS Error: Audio host blocks effects. Try disabling FX.", 'error');
+            } else {
+                appLog("Playback failed. Check console.", 'error');
+            }
+        });
+    }
+
+    function toggleGlobalPlay() {
+        if(audioEl.paused) { audioEl.play(); isPlaying = true; }
+        else { audioEl.pause(); isPlaying = false; }
+        updatePlayBtn();
+    }
+
+    function updatePlayBtn() {
+        document.getElementById('gpPlayBtn').textContent = isPlaying ? "⏸" : "▶";
+    }
+
+    function seek(sec) { audioEl.currentTime += sec; }
+    function scrub(val) { audioEl.currentTime = val; }
+    function setVolume(val) { gainNode.gain.value = val; }
+
+    // Update Progress Bar
+    audioEl.addEventListener('timeupdate', () => {
+        const cur = audioEl.currentTime;
+        const dur = audioEl.duration || 0;
+        document.getElementById('gpProgress').max = dur;
+        document.getElementById('gpProgress').value = cur;
+        document.getElementById('gpTimeCurrent').textContent = fmtTime(cur);
+        document.getElementById('gpTimeTotal').textContent = fmtTime(dur);
+    });
+    function fmtTime(s) { return new Date(s * 1000).toISOString().substr(14, 5); }
+
+    // When track ends - advance in playlist if available
+    audioEl.addEventListener('ended', () => {
+        if (playlist && playlist.length > 0 && currentIndex + 1 < playlist.length) {
+            currentIndex++;
+            playFromPlaylist(currentIndex, playlist[currentIndex].image || document.getElementById('gpCover').src, document.getElementById('gpStatus').textContent);
+        } else {
+            // no more tracks
+            isPlaying = false;
+            updatePlayBtn();
+        }
+    });
+
+    // --- Playlist functions ---
+
+    // el is the hover-overlay element that contains data-clips (encoded)
+    function playCardClips(el, img, tags) {
+        const raw = el.dataset.clips;
+        if (!raw) {
+            appLog("No clips found", "error");
+            return;
+        }
+
+        try {
+            const parsed = JSON.parse(decodeURIComponent(raw));
+            playlist = Array.isArray(parsed) ? parsed : [];
+            if (playlist.length === 0) { appLog("No playable clips", "error"); return; }
+            currentIndex = 0;
+            playFromPlaylist(currentIndex, img, tags);
+        } catch (e) {
+            console.error(e);
+            appLog("Failed to parse clips", "error");
+        }
+    }
+
+    function playFromPlaylist(index, img, tags) {
+        if (!playlist || playlist.length === 0) return;
+        if (index < 0 || index >= playlist.length) return;
+
+        currentIndex = index;
+        const track = playlist[currentIndex];
+        // update UI index
+        document.getElementById('gpIndex').textContent = `${currentIndex+1}/${playlist.length}`;
+        // set gp cover to track image if present
+        const imageToShow = track.image || img || document.getElementById('gpCover').src || "https://via.placeholder.com/50";
+        loadAndPlay(track.url, track.title || `Clip ${currentIndex+1}`, imageToShow, tags || document.getElementById('gpStatus').textContent);
+
+        // pre-load next track to make switching instant
+        if (playlist[currentIndex + 1]) {
+            try {
+                const preload = new Audio();
+                preload.crossOrigin = "anonymous";
+                preload.src = playlist[currentIndex + 1].url;
+                preload.load();
+            } catch (e) { /* silent */ }
+        }
+    }
+
+    function prevTrack() {
+        if (playlist && playlist.length > 0) {
+            if (currentIndex > 0) {
+                playFromPlaylist(currentIndex - 1);
+            } else {
+                // at first track - restart
+                audioEl.currentTime = 0;
+            }
+        } else {
+            // fallback: seek back 10s
+            seek(-10);
+        }
+    }
+
+    function nextTrack() {
+        if (playlist && playlist.length > 0) {
+            if (currentIndex + 1 < playlist.length) {
+                playFromPlaylist(currentIndex + 1);
+            } else {
+                // end of playlist - stop or loop? here we stop
+                audioEl.currentTime = audioEl.duration || 0;
+                audioEl.pause();
+                isPlaying = false;
+                updatePlayBtn();
+            }
+        } else {
+            // fallback: seek forward 10s
+            seek(10);
+        }
+    }
+
+    // --- FX LOGIC ---
+    let maxActive = false;
+    function toggleMaximizer() {
+        maxActive = !maxActive;
+        const btn = document.getElementById('btnMax');
+        btn.classList.toggle('on', maxActive);
+        setMaximizerGain(maxActive ? 3.0 : 0);
+        document.querySelector('#fxPanel input[oninput*="setMaximizerGain"]').value = maxActive ? 3.0 : 0;
+        // sync slider
+        document.getElementById('maxGain').value = maxActive ? 3.0 : 0;
+    }
+
+    function setMaximizerGain(val) {
+        const v = parseFloat(val);
+        // in playback chain we keep gain node as multiplier: 1 + v*0.5
+        maxGainNode.gain.value = 1 + (v * 0.5);
+
+        if(v > 0.5) {
+            document.getElementById('btnMax').classList.add('on');
+            maxActive = true;
+        } else {
+            document.getElementById('btnMax').classList.remove('on');
+            maxActive = false;
+        }
+    }
+
+    // 3. Исправленный переключатель EQ (сброс при закрытии)
+    function toggleEqPanel() {
+        const panel = document.getElementById('fxPanel');
+        const btn = document.getElementById('btnEq');
+        const isOpening = !panel.classList.contains('show');
+
+        panel.classList.toggle('show');
+
+        if (!isOpening) {
+            // Если ЗАКРЫВАЕМ - СБРАСЫВАЕМ ЭФФЕКТ (Выключаем EQ)
+            lowShelf.gain.value = 0;
+            midPeaking.gain.value = 0;
+            highShelf.gain.value = 0;
+
+            // Визуально сбрасываем слайдеры в 0
+            document.getElementById('eqLow').value = 0;
+            document.getElementById('eqMid').value = 0;
+            document.getElementById('eqHigh').value = 0;
+
+            btn.classList.remove('on');
+            appLog("EQ Disabled (Reset to 0)", 'info');
+        } else {
+            btn.classList.add('on');
+        }
+    }
+
+    function setFilter(type, val) {
+        val = parseFloat(val);
+        if(type === 'low') lowShelf.gain.value = val;
+        if(type === 'mid') midPeaking.gain.value = val;
+        if(type === 'high') highShelf.gain.value = val;
+
+        const isActive = lowShelf.gain.value != 0 || midPeaking.gain.value != 0 || highShelf.gain.value != 0;
+        document.getElementById('btnEq').classList.toggle('on', isActive);
+    }
+
+    // =========================
+    // RENDER / EXPORT (Offline)
+    // =========================
+
+    async function fetchAudioBuffer(url) {
+        // downloads and decodes an audio url into an AudioBuffer using main audioCtx
+        appLog("Fetching audio buffer...", "info");
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Fetch failed: " + res.status);
+        const ab = await res.arrayBuffer();
+        // decode using audioCtx (this keeps consistent sampleRate)
+        return await audioCtx.decodeAudioData(ab);
+    }
+
+    async function renderWithFX(sourceBuffer) {
+        // Create OfflineAudioContext with same channels / length / sampleRate
+        const offlineCtx = new OfflineAudioContext(
+            sourceBuffer.numberOfChannels,
+            sourceBuffer.length,
+            sourceBuffer.sampleRate
+        );
+
+        const src = offlineCtx.createBufferSource();
+        src.buffer = sourceBuffer;
+
+        // Recreate nodes in offline context
+        const low = offlineCtx.createBiquadFilter();
+        low.type = "lowshelf";
+        low.frequency.value = 320;
+        low.gain.value = parseFloat(lowShelf.gain.value) || 0;
+
+        const mid = offlineCtx.createBiquadFilter();
+        mid.type = "peaking";
+        mid.frequency.value = 1000;
+        mid.Q.value = 0.5;
+        mid.gain.value = parseFloat(midPeaking.gain.value) || 0;
+
+        const high = offlineCtx.createBiquadFilter();
+        high.type = "highshelf";
+        high.frequency.value = 3200;
+        high.gain.value = parseFloat(highShelf.gain.value) || 0;
+
+        const maxGain = offlineCtx.createGain();
+        // replicate UI's mapping: slider v -> gain = 1 + v*0.5
+        // read the slider value (maxGain slider element holds raw v)
+        const vRaw = parseFloat(document.getElementById('maxGain')?.value || 0);
+        maxGain.gain.value = 1 + (vRaw * 0.5);
+
+        const comp = offlineCtx.createDynamicsCompressor();
+        comp.threshold.value = compressorNode.threshold.value;
+        comp.knee.value = compressorNode.knee.value;
+        comp.ratio.value = compressorNode.ratio.value;
+        comp.attack.value = compressorNode.attack.value;
+        comp.release.value = compressorNode.release.value;
+
+        // connect chain
+        src.connect(low);
+        low.connect(mid);
+        mid.connect(high);
+        high.connect(maxGain);
+        maxGain.connect(comp);
+        comp.connect(offlineCtx.destination);
+
+        src.start(0);
+
+        appLog("Rendering offline (this may take a few seconds)...", "info");
+        const rendered = await offlineCtx.startRendering();
+        appLog("Offline render finished.", "success");
+        return rendered;
+    }
+
+    function floatTo16BitPCMChunk(float32Array) {
+        const out = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i++) {
+            let s = Math.max(-1, Math.min(1, float32Array[i]));
+            out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        return out;
+    }
+
+    function bufferToMp3(buffer, kbps = 128) {
+        const channels = buffer.numberOfChannels;
+        const sampleRate = buffer.sampleRate;
+        const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, kbps);
+
+        const mp3Data = [];
+        const blockSize = 1152; // LAME internal frame size
+
+        const left = buffer.getChannelData(0);
+        const right = channels > 1 ? buffer.getChannelData(1) : null;
+        const len = left.length;
+
+        for (let i = 0; i < len; i += blockSize) {
+            const leftChunk = floatTo16BitPCMChunk(left.subarray(i, i + blockSize));
+            let mp3buf;
+            if (channels === 2 && right) {
+                const rightChunk = floatTo16BitPCMChunk(right.subarray(i, i + blockSize));
+                mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+            } else {
+                mp3buf = mp3encoder.encodeBuffer(leftChunk);
+            }
+            if (mp3buf && mp3buf.length) mp3Data.push(new Int8Array(mp3buf));
+        }
+
+        const mp3buf = mp3encoder.flush();
+        if (mp3buf && mp3buf.length) mp3Data.push(new Int8Array(mp3buf));
+
+        return new Blob(mp3Data, { type: 'audio/mpeg' });
+    }
+
+    async function downloadWithFX(url, title = 'track', kbps = 192, buttonEl = null) {
+        try {
+            if (buttonEl) { buttonEl.disabled = true; buttonEl.textContent = 'Rendering...'; }
+            appLog("Preparing MP3 download with FX...", "info");
+
+            // fetch and decode
+            const buffer = await fetchAudioBuffer(url);
+
+            // offline render (EQ / Max / Comp)
+            const rendered = await renderWithFX(buffer);
+
+            // mp3 encode
+            const mp3Blob = bufferToMp3(rendered, 320);
+
+            // download
+            const objectUrl = URL.createObjectURL(mp3Blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = objectUrl;
+            a.download = (title.replace(/[^\w\d\-_. ]/g, '') || 'track') + '_with_fx.mp3';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+
+            // revoke after short delay
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000); // revoke after 60s
+
+            appLog("MP3 downloaded: " + a.download, "success");
+        } catch (err) {
+            console.error(err);
+            appLog("MP3 export failed: " + (err.message || err), "error");
+            alert("Не удалось экспортировать MP3. Проверь CORS / исходный URL и свободную память.");
+        } finally {
+            if (buttonEl) { buttonEl.disabled = false; buttonEl.textContent = 'Download with FX'; }
+        }
+    }
+
+
+    // =========================
+    // RMS / Meter (Wave Candy like)
+    // =========================
+
+    const rmsCanvas = document.getElementById('rmsCanvas');
+    const rmsCtx = rmsCanvas.getContext('2d');
+    const rmsValueEl = document.getElementById('rmsValue');
+
+    function calculateRMSFloat32(array) {
+        let sum = 0;
+        for (let i = 0; i < array.length; i++) {
+            sum += array[i] * array[i];
+        }
+        return Math.sqrt(sum / array.length);
+    }
+
+    function drawRMS() {
+        requestAnimationFrame(drawRMS);
+        const size = rmsAnalyser.fftSize;
+        const buf = new Float32Array(size);
+        rmsAnalyser.getFloatTimeDomainData(buf);
+        const rms = calculateRMSFloat32(buf) || 0;
+        const db = 20 * Math.log10(rms || 1e-8);
+
+        // update numeric
+        const displayDb = (db <= -120) ? '-∞' : db.toFixed(1);
+        rmsValueEl.textContent = `${displayDb} dB`;
+
+        // draw bar: map db range (-60..0) to 0..1
+        const minDb = -60;
+        const norm = Math.max(0, Math.min(1, (db - minDb) / (0 - minDb)));
+        const w = rmsCanvas.width;
+        const h = rmsCanvas.height;
+        rmsCtx.clearRect(0,0,w,h);
+
+        // background
+        rmsCtx.fillStyle = '#111';
+        rmsCtx.fillRect(0,0,w,h);
+
+        // gradient bar
+        const grad = rmsCtx.createLinearGradient(0,0,w,0);
+        grad.addColorStop(0, '#4caf50');
+        grad.addColorStop(0.6, '#ffeb3b');
+        grad.addColorStop(1, '#f44336');
+
+        rmsCtx.fillStyle = grad;
+        rmsCtx.fillRect(0,0, Math.round(norm * w), h);
+
+        // border
+        rmsCtx.strokeStyle = '#222';
+        rmsCtx.strokeRect(0,0,w,h);
+    }
+
+    // start meter loop
+    drawRMS();
+
+    // end of script
+</script>
+</body>
+</html>

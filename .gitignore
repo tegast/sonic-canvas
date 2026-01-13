@@ -1,0 +1,9 @@
+node_modules/
+.env
+history.json
+keys.json
+.idea/
+.vscode/
+npm-debug.log*
+.DS_Store
+Thumbs.db
