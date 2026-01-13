@@ -60,15 +60,15 @@ async function fetchWithRetry(url, options = {}) {
         try {
             const headers = { ...options.headers, "Authorization": `Bearer ${key}` };
             const res = await fetch(url, { ...options, headers });
-            
+
             let data;
             try {
                 data = await res.json();
             } catch (e) {
                 console.error(`[API] Key ${key.slice(0,5)}... returned non-JSON (status ${res.status})`);
-                continue; 
+                continue;
             }
-            
+
             if (data.code === 401 || data.code === 402 || data.code === 429) {
                 console.log(`[API] Key ${key.slice(0,5)}... returned code ${data.code} (${data.msg}). Switching key...`);
                 continue;
@@ -99,9 +99,9 @@ app.get("/api/keys", (req, res) => {
 
 app.post("/api/keys", (req, res) => {
     try {
-        const { keys } = req.body; 
+        const { keys } = req.body;
         if (!Array.isArray(keys)) return res.status(400).json({ error: "Invalid format" });
-        
+
         const validKeys = keys.map(k => k.trim()).filter(k => k.length > 0);
         saveKeys(validKeys);
         res.json({ success: true, count: validKeys.length });
@@ -115,20 +115,20 @@ app.post("/api/upload-file", upload.single("file"), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: "No file" });
         if (req.file.size > 10 * 1024 * 1024) {
-             return res.status(400).json({ error: "File too large (Max 10MB)" });
+            return res.status(400).json({ error: "File too large (Max 10MB)" });
         }
 
         const formData = new FormData();
         formData.append("files[]", req.file.buffer, req.file.originalname);
 
         console.log("Uploading to Uguu.se...");
-        const response = await fetch("https://uguu.se/upload.php?output=json", { 
-            method: "POST", 
-            body: formData 
+        const response = await fetch("https://uguu.se/upload.php?output=json", {
+            method: "POST",
+            body: formData
         });
-        
+
         const data = await response.json();
-        
+
         if (!data.success || !data.files || data.files.length === 0) {
             throw new Error(JSON.stringify(data));
         }
@@ -148,7 +148,7 @@ app.post("/api/upload-file", upload.single("file"), async (req, res) => {
 app.post("/api/generate", async (req, res) => {
     try {
         const { mode, task_type, title, tags, prompt, ref_url, options } = req.body;
-        
+
         const isCover = task_type === 'cover_music';
         const endpoint = isCover
             ? "https://api.kie.ai/api/v1/generate/upload-cover"
@@ -156,7 +156,7 @@ app.post("/api/generate", async (req, res) => {
 
         const body = {
             model: options?.model || "V5",
-            callBackUrl: "https://google.com", 
+            callBackUrl: "https://google.com",
             customMode: mode === "custom",
             instrumental: options?.instrumental || false
         };
@@ -169,21 +169,21 @@ app.post("/api/generate", async (req, res) => {
         if (body.customMode) {
             body.title = title || "Untitled";
             body.style = tags || "Pop";
-            body.prompt = prompt; 
-            
+            body.prompt = prompt;
+
             if (options) {
                 if (options.vocal_gender && options.vocal_gender !== 'any') {
                     body.vocalGender = options.vocal_gender === 'male' ? 'm' : 'f';
                 }
                 if (options.style_influence) body.styleWeight = parseFloat(options.style_influence);
                 if (options.weirdness) body.weirdnessConstraint = parseFloat(options.weirdness);
-                
+
                 if (options.negative_tags) body.negativeTags = options.negative_tags;
                 if (options.audio_weight) body.audioWeight = parseFloat(options.audio_weight);
                 if (options.persona_id) body.personaId = options.persona_id;
             }
         } else {
-            body.prompt = prompt; 
+            body.prompt = prompt;
         }
 
         const data = await fetchWithRetry(endpoint, {
@@ -247,9 +247,9 @@ app.delete("/api/history/:taskId", (req, res) => {
 app.post("/api/history/import", async (req, res) => {
     const { taskId } = req.body;
     if (!taskId) return res.status(400).json({ error: "Task ID required" });
-    
+
     const result = await checkAndSaveTask(taskId);
-    
+
     if (result.raw && result.raw.data && result.raw.data.length > 0) {
         res.json({ success: true, data: result.raw.data[0] });
     } else {
@@ -284,14 +284,14 @@ async function checkAndSaveTask(taskId) {
             const task = data.data;
             let kieStatus = task.status;
             if (typeof kieStatus === 'string') kieStatus = kieStatus.trim().toUpperCase();
-            
+
             let state = 'submitted';
             if (['SUCCESS', 'COMPLETED', 'FIRST_SUCCESS'].includes(kieStatus)) {
                 state = 'succeeded';
             } else if (['FAILED', 'GENERATE_AUDIO_FAILED', 'CREATE_TASK_FAILED', 'SENSITIVE_WORD_ERROR'].includes(kieStatus)) {
                 state = 'failed';
             }
-            
+
             let rawClips = [];
             const parseIfString = (val) => {
                 if (typeof val === 'string') {
@@ -301,7 +301,7 @@ async function checkAndSaveTask(taskId) {
             };
 
             const parsedResponse = parseIfString(task.response);
-            
+
             if (Array.isArray(task.sunoData)) {
                 rawClips = task.sunoData;
             } else if (parsedResponse && Array.isArray(parsedResponse.sunoData)) {
@@ -313,7 +313,7 @@ async function checkAndSaveTask(taskId) {
             }
 
             const clipsArray = Array.isArray(rawClips) ? rawClips : (rawClips ? [rawClips] : []);
-            
+
             let metadata = {};
             if (task.param) {
                 const p = parseIfString(task.param);
@@ -338,28 +338,28 @@ async function checkAndSaveTask(taskId) {
                 video: track.videoUrl || track.video_url || track.video,
                 duration: track.duration,
                 title: track.title || task.title,
-                status: state, 
+                status: state,
                 index: index + 1
             })).filter(c => c.url);
 
             if (foundClips.length > 0) {
-                 state = 'succeeded';
-                 
-                 resultRaw.data = foundClips.map(c => ({
-                     state: state,
-                     clip_id: c.id,
-                     audio_url: c.url,
-                     image_url: c.image_url,
-                     video_url: c.video,
-                     duration: c.duration,
-                     title: c.title
-                 }));
+                state = 'succeeded';
+
+                resultRaw.data = foundClips.map(c => ({
+                    state: state,
+                    clip_id: c.id,
+                    audio_url: c.url,
+                    image_url: c.image_url,
+                    video_url: c.video,
+                    duration: c.duration,
+                    title: c.title
+                }));
 
                 updateTaskInDb(taskId, {
                     status: 'completed',
                     clips: foundClips,
                     title: foundClips[0].title || task.title,
-                    metadata: metadata 
+                    metadata: metadata
                 });
                 updated = true;
             } else if (state === 'succeeded') {
@@ -374,7 +374,7 @@ async function checkAndSaveTask(taskId) {
                 updateTaskInDb(taskId, { status: 'failed', error_msg: failReason });
                 updated = true;
             } else {
-                 resultRaw.data = [{ state: state, task_id: taskId }];
+                resultRaw.data = [{ state: state, task_id: taskId }];
             }
         } else {
             resultRaw.data = [{ state: 'failed', task_id: taskId, error: data.msg || `API Error ${data.code}` }];
@@ -382,11 +382,11 @@ async function checkAndSaveTask(taskId) {
         return { raw: resultRaw, updated };
     } catch (e) {
         console.error("Check error:", e);
-        return { 
-            raw: { 
-                data: [{ state: 'failed', task_id: taskId, error: e.message || "Network Check Failed" }] 
-            }, 
-            updated: false 
+        return {
+            raw: {
+                data: [{ state: 'failed', task_id: taskId, error: e.message || "Network Check Failed" }]
+            },
+            updated: false
         };
     }
 }

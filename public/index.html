@@ -574,14 +574,16 @@
 <div class="modal-overlay" id="keysModal" onclick="if(event.target === this) closeKeysModal()">
     <div class="modal" style="max-width: 500px; height: auto;">
         <div class="modal-header">
-            <div class="modal-title">API Keys</div>
+            <div class="modal-title">API Keys (локально)</div>
             <button class="close-btn" onclick="closeKeysModal()">×</button>
         </div>
         <div class="modal-body" style="flex-direction: column; padding: 25px; overflow-y: auto;">
-            <p style="font-size: 0.85rem; color: #888; margin-top: 0;">One key per line. Automatically rotated on limit/error.</p>
+            <p style="font-size: 0.85rem; color: #888; margin-top: 0;">
+                Вставьте ваши ключи, по одному в строке. Ключи хранятся только в вашем браузере (localStorage) и не отправляются на сервер для хранения.
+            </p>
             <textarea id="keysInput" style="width: 100%; height: 200px; font-family: monospace; font-size: 0.85rem; white-space: pre; background:#111; color:#ccc; border:1px solid #333; padding:10px; border-radius:8px;" placeholder="Paste keys here..."></textarea>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
-                <span id="keysStatus" style="font-size: 0.8rem; color: #666;">Ready</span>
+                <span id="keysStatus" style="font-size: 0.8rem; color: #666;">Keys stored locally</span>
                 <button class="create-btn" style="width: auto; padding: 10px 24px; margin:0;" onclick="saveKeys()">Save</button>
             </div>
         </div>
@@ -638,6 +640,49 @@
 <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.0/lame.min.js"></script>
 
 <script>
+    // ========== Local keys helpers ==========
+    const LOCAL_KEYS_KEY = 'suno_api_keys'; // localStorage key
+
+    function getLocalKeysRaw() {
+        return (localStorage.getItem(LOCAL_KEYS_KEY) || '').trim();
+    }
+    function getLocalKeysArray() {
+        const raw = getLocalKeysRaw();
+        if (!raw) return [];
+        return raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    }
+    function saveLocalKeysFromTextarea(text) {
+        const arr = (text || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        localStorage.setItem(LOCAL_KEYS_KEY, arr.join('\n'));
+    }
+
+    function ensureKeysOrOpenModal() {
+        if (getLocalKeysArray().length === 0) {
+            appLog("No API keys found — open keys modal.", 'info');
+            openKeysModal();
+            return false;
+        }
+        return true;
+    }
+
+    // Wrapped fetch that adds X-User-Keys header from localStorage
+    async function apiFetch(path, opts = {}) {
+        const keysRaw = getLocalKeysRaw();
+        if (!keysRaw) {
+            throw new Error('No API keys configured. Open 🔑 and paste keys.');
+        }
+        // merge headers
+        const headers = { ...(opts.headers || {}), 'X-User-Keys': keysRaw };
+        // If body is FormData, do not set Content-Type (browser will add boundary)
+        if (opts.body instanceof FormData) {
+            const o = { ...opts, headers };
+            return fetch(path, o);
+        } else {
+            const o = { ...opts, headers };
+            return fetch(path, o);
+        }
+    }
+
     let currentModel = 'V5';
     let currentGender = 'any';
     let uploadedRefUrl = null;
@@ -705,32 +750,28 @@
         el.style.borderColor = 'white';
     }
 
-    async function openKeysModal() {
+    // Keys modal: read/write localStorage only
+    function openKeysModal() {
         document.getElementById('keysModal').classList.add('open');
-        try {
-            const res = await fetch('/api/keys');
-            const data = await res.json();
-            if(data.keys) document.getElementById('keysInput').value = data.keys.join('\n');
-        } catch(e) {}
+        document.getElementById('keysInput').value = getLocalKeysRaw();
     }
     function closeKeysModal() { document.getElementById('keysModal').classList.remove('open'); }
     async function saveKeys() {
-        const raw = document.getElementById('keysInput').value;
-        const keys = raw.split('\n').map(k => k.trim()).filter(k => k);
-        try {
-            await fetch('/api/keys', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ keys }) });
-            appLog(`Saved ${keys.length} API keys.`, 'success');
-            closeKeysModal();
-        } catch(e) { appLog("Save failed", 'error'); }
+        const raw = document.getElementById('keysInput').value || '';
+        saveLocalKeysFromTextarea(raw);
+        appLog(`Saved ${getLocalKeysArray().length} key(s) locally.`, 'success');
+        closeKeysModal();
+        // try refresh if keys were empty previously
+        refreshHistory();
     }
 
-    // --- MODAL ---
+    // --- MODAL DETAILS ---
     function openModal(index) {
         const item = historyData[index];
         if(!item) return;
 
         document.getElementById('mTitle').textContent = item.title || "Untitled";
-        document.getElementById('mStatus').textContent = item.status.toUpperCase();
+        document.getElementById('mStatus').textContent = (item.status || '').toUpperCase();
         document.getElementById('mTaskId').textContent = item.task_id;
         document.getElementById('mLyrics').textContent = item.prompt || "No text provided.";
 
@@ -813,16 +854,20 @@
         document.getElementById('fileName').textContent = "Uploading...";
         const fd = new FormData(); fd.append('file', file);
         try {
-            const res = await fetch('/api/upload-file', { method:'POST', body: fd });
+            if (!ensureKeysOrOpenModal()) return;
+            const res = await apiFetch('/api/upload-file', { method:'POST', body: fd });
             const data = await res.json();
             if(data.public_url) {
                 uploadedRefUrl = data.public_url;
                 document.getElementById('fileName').textContent = "✅ " + file.name;
                 appLog("Uploaded: " + file.name, 'success');
-            } else throw new Error("No URL");
+            } else {
+                throw new Error("No URL from upload");
+            }
         } catch(err) {
             document.getElementById('fileName').textContent = "❌ Failed";
-            appLog("Upload failed", 'error');
+            appLog("Upload failed: " + (err.message || err), 'error');
+            if ((err.message || '').includes('No API keys')) openKeysModal();
         }
     });
 
@@ -839,6 +884,7 @@
         if(!document.getElementById('instrumentalToggle').checked && !prompt.trim()) {
             alert("Please enter lyrics/prompt"); return;
         }
+        if (!ensureKeysOrOpenModal()) return;
 
         btn.disabled = true;
         status.textContent = "Sending request...";
@@ -863,12 +909,12 @@
         };
 
         try {
-            const res = await fetch('/api/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+            const res = await apiFetch('/api/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
             const data = await res.json();
             if(data.task_id) {
                 status.textContent = "Started: " + data.task_id;
                 appLog("Task Started: " + data.task_id, 'success');
-                refreshHistory();
+                await refreshHistory();
                 poll(data.task_id);
             } else {
                 status.textContent = "Error";
@@ -878,13 +924,15 @@
         } catch(e) {
             status.textContent = "Network Error";
             btn.disabled = false;
+            appLog("Generate failed: " + (e.message || e), 'error');
+            if ((e.message || '').includes('No API keys')) openKeysModal();
         }
     }
 
     function poll(id) {
         const interval = setInterval(async () => {
             try {
-                const res = await fetch(`/api/check/${id}`);
+                const res = await apiFetch(`/api/check/${id}`, { method: 'GET' });
                 const data = await res.json();
                 let state = 'submitted';
                 if(data.data && data.data.length > 0) state = data.data[0].state.toLowerCase();
@@ -902,17 +950,31 @@
                     appLog(`Task ${id} failed`, 'error');
                     refreshHistory();
                 }
-            } catch(e) {}
+            } catch(e) {
+                // silent
+                if ((e.message || '').includes('No API keys')) { openKeysModal(); clearInterval(interval); }
+            }
         }, 4000);
     }
 
     async function refreshHistory() {
         try {
-            await fetch('/api/history/refresh', { method:'POST' });
-            const res = await fetch('/api/history');
+            if (!ensureKeysOrOpenModal()) {
+                historyData = [];
+                renderFeed([]);
+                document.getElementById('statusMsg').textContent = "Add API keys (🔑) to load your library.";
+                return;
+            }
+
+            await apiFetch('/api/history/refresh', { method:'POST' });
+            const res = await apiFetch('/api/history', { method: 'GET' });
             historyData = await res.json();
             renderFeed(historyData);
-        } catch(e) { console.error(e); }
+        } catch(e) {
+            console.error(e);
+            appLog("Refresh failed: " + (e.message || e), 'error');
+            if ((e.message || '').includes('No API keys')) openKeysModal();
+        }
     }
 
     function renderFeed(items) {
@@ -1001,21 +1063,32 @@
     async function deleteTask(e, id) {
         e.stopPropagation();
         if(!confirm("Delete task?")) return;
-        await fetch('/api/history/' + id, { method: 'DELETE' });
-        refreshHistory();
+        try {
+            await apiFetch('/api/history/' + id, { method: 'DELETE' });
+            refreshHistory();
+        } catch (err) {
+            appLog("Delete failed: " + (err.message || err), 'error');
+            if ((err.message || '').includes('No API keys')) openKeysModal();
+        }
     }
 
     async function importTask() {
         const id = prompt("Task ID:");
         if(id) {
-            await fetch('/api/history/import', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({taskId:id})});
-            refreshHistory();
+            try {
+                await apiFetch('/api/history/import', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({taskId:id})});
+                refreshHistory();
+            } catch(e) {
+                appLog("Import failed: " + (e.message || e), 'error');
+                if ((e.message || '').includes('No API keys')) openKeysModal();
+            }
         }
     }
 
     // Init
-    refreshHistory();
     toggleMode();
+    // try to load history (if keys present)
+    try { refreshHistory(); } catch(e) { /* ignore */ }
 
     // --- AUDIO ENGINE (Web Audio API) ---
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
